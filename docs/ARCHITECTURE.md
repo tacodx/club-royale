@@ -56,7 +56,8 @@ Bottom bar x positions, shared across games:
 ```
 -205 BetMinus   -152 BetPlaque   -99 BetPlus
  -45/-40 selector 1     24 selector 2
-  52 START (mines/stairs)   75 SPIN/DEAL   110 DROP/SPIN   158 CASH OUT
+  52 START (mines/stairs) / GO (duck road) / FLY (aviamasters)
+  75 SPIN/DEAL   110 DROP/SPIN   158 CASH OUT
 blackjack: -150 HIT  -50 STAND  50 DOUBLE  150 SPLIT
            -60 INSURE  60 NO
 ```
@@ -66,7 +67,8 @@ blackjack action buttons.
 
 ## Screen routing
 
-`screen` holds 0–6: lobby, slots, plinko, mines, blackjack, roulette, stairs.
+`screen` holds 0–8: lobby, slots, plinko, mines, blackjack, roulette, stairs,
+duck road, aviamasters.
 The stage has one `when I receive` per screen that sets `screen`, resets
 per-round state and then broadcasts `screenChanged`.
 
@@ -99,7 +101,17 @@ Scratch has no 2-D lists.
 | `plinkoMults` | 9 blocks of 17 | `((rowsIdx-1)*3 + (riskIdx-1))*17 + bucket` |
 | `mineMults` | 4 blocks of 24 | `(bombsIdx-1)*24 + picks` |
 | `stairMults` | 5 blocks of 9 | `(stDiff-1)*9 + (stRow-1)` |
+| `duckMults` | 2 x 4 blocks of 12 | `(dkMode-1)*12 + dkLane + 48*dkGot` |
 | `rBets` | 49 slots | 1 = number 0, 2–37 = numbers 1–36, 38–49 = outside bets |
+
+Aviamasters needs no table: `src/tables4.py` only fixes the constants and
+asserts the distribution, because the landing point is sampled directly as
+`HOUSE * PREC / rand(1, PREC)`.
+
+`src/tables3.py` solves Duck Road as `HOUSE / (p**n * bonus(n))`, where
+`bonus(n)` is the expected golden-egg contribution at lane n. It emits **two**
+ladders rather than one: the runtime never multiplies a payout by 3 itself,
+because `1.02 * 3` renders as `3.0599999999999996` in the multiplier readout.
 
 `src/tables.py` bisects a scale factor per Plinko table until the binomially
 weighted RTP hits 95%, then rounds to display-friendly values and re-checks.
@@ -109,14 +121,16 @@ returns exactly 36/37 by construction, asserted in `tables2.py`.
 ## Numeric display
 
 There are no Scratch variable monitors anywhere. Numbers are drawn with a
-`Digit` sprite carrying 13 costumes (`0`–`9`, `.`, `,`, blank) and 32 clones
-split across eight fields:
+`Digit` sprite carrying 14 costumes (`0`–`9`, `.`, `,`, blank, `x`) and 40
+clones split across nine fields. The `x` was appended *after* the blank so every
+costume index already in use kept its meaning:
 
 | Field | Slots | Shows | Where |
 |---|---|---|---|
 | 1 | 7 | chips | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
-| 3 | 7 | multiplier | top bar (mines, stairs) |
+| 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
+| 9 | 8 | multiplier + `x` | centre of the sea, at 170% (aviamasters) |
 | 4 | 2 | roulette result | under the wheel |
 | 5 | 6 | roulette stake | top bar |
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |

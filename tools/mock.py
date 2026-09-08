@@ -20,7 +20,7 @@ T = A11.T
 T2 = json.load(open(BUILD / "tables2.json"))
 ROWC, ROWSP, ROWHS = A11.ROWCOUNT, A11.ROWSP, A11.ROWHS
 BKV = A11.BUCKET_VALS
-DCH = list("0123456789") + [".", ","]
+DCH = list("0123456789") + [".", ",", "", "x"]   # "" is the blank, d13
 
 
 def stage():
@@ -65,9 +65,9 @@ SPOTY = [50] + [24 + ((n - 1) % 3) * 26 for n in range(1, 37)] + \
 
 def lobby():
     c = stage(); put(c, "title", 0, 106)
-    for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines",
-                           "lt_bj", "lt_roulette", "lt_stairs"], 1):
-        put(c, t, -140 + 140 * ((i - 1) % 3), 24 - 96 * ((i - 1) // 3))
+    for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines", "lt_bj",
+                           "lt_roulette", "lt_stairs", "lt_duck", "lt_avia"], 1):
+        put(c, t, -162 + 108 * ((i - 1) % 4), 30 - 90 * ((i - 1) // 4))
     chrome(c); return c
 
 
@@ -130,6 +130,52 @@ def stairs():
     chrome(c); return c
 
 
+def duck(lane=5, egg=True):
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v3 as AV3
+    c = stage()
+    put(c, "duckroad", 0, 0)
+    mode = 2                                   # MEDIUM
+    for i in range(1, 13):
+        idx = (mode - 1) * 12 + i + (48 if egg and i <= lane else 0)
+        put(c, f"dm{idx}", AV3.LANE_X[i - 1], AV3.LABEL_Y,
+            ghost=0 if i == lane else 0.55)
+    # ambient traffic in lanes the duck is not standing in
+    for i, cn in [(2, "dcar1"), (8, "dcar3"), (11, "dcar2")]:
+        put(c, cn, AV3.LANE_X[i - 1], 40 - 22 * i, size=84, ghost=0.42)
+    x = AV3.LANE_X[lane - 1] if lane else AV3.KERB_X
+    put(c, "duck1", x, AV3.DUCK_Y)
+    if egg:
+        put(c, "degg", x, AV3.DUCK_Y + 24)
+    betbar(c); put(c, "sel_duck2", -45, -152)
+    put(c, "btn_go", 52, -152); put(c, "btn_cashout", 158, -152)
+    put(c, "plq_mult", 0, 163); dig(c, "7.27", 86, 163, 14)
+    chrome(c); return c
+
+
+def avia(mult="4.86", flying=True):
+    import sys, math
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v4 as AV4
+    c = stage()
+    put(c, "avsea", 0, 0)
+    for i, (sn, sx) in enumerate([("avship1", -160), ("avship2", 20),
+                                  ("avship1", 170)], 1):
+        put(c, sn, sx, AV4.SHIP_Y + i * 6, size=76 + i * 8, ghost=0.30)
+    prog = min(1.0, math.log10(float(mult)) / 2) if flying else 0.0
+    px = AV4.PLANE_X0 + (AV4.PLANE_X1 - AV4.PLANE_X0) * prog
+    py = AV4.PLANE_Y0 + (AV4.PLANE_Y1 - AV4.PLANE_Y0) * prog
+    put(c, "avplane2" if flying else "avplane1", px, py)
+    dig(c, mult + "x", AV4.MULT_XY[0], AV4.MULT_XY[1], AV4.MULT_GAP)
+    betbar(c); put(c, "sel_auto3", -45, -152)
+    if flying:
+        put(c, "btn_cashout", 158, -152)
+    else:
+        put(c, "btn_fly", 52, -152)
+    chrome(c); return c
+
+
 def roulette(spinning=False):
     c = stage()
     for i in range(1, 50):
@@ -184,6 +230,10 @@ SCREENS = {
     "plinko_12": lambda: plinko(1, "med"),
     "plinko_16": lambda: plinko(2, "high"),
     "mines": mines, "stairs": stairs,
+    "duck_road": lambda: duck(5, True),
+    "duck_start": lambda: duck(0, False),
+    "avia_flight": lambda: avia("4.86", True),
+    "avia_idle": lambda: avia("1.00", False),
     "roulette_bets": lambda: roulette(False),
     "roulette_spin": lambda: roulette(True),
     "blackjack_idle": lambda: blackjack("idle"),

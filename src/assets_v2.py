@@ -199,7 +199,7 @@ def stair_mults():
 
 
 # ========================================================= lobby v2
-LW, LH = 130, 84
+LW, LH = 100, 76
 
 
 def lobby_tile(name, label, icon):
@@ -220,9 +220,9 @@ def lobby_tile(name, label, icon):
     ld.polygon(chamfer_pts([8 * SC, 8 * SC, W - 3 - 8 * SC, H - 3 - 8 * SC],
                            11 * SC), outline=(255, 255, 255, 115), width=1)
     img = Image.alpha_composite(img, gold_fill(line))
-    icon(img, (W / 2, 30 * SC))
-    s, tr = fit(label, 13 * SC, 2.4 * SC, W - 22 * SC)
-    tracked(img, (W / 2, 64 * SC), label, s, tr, anchor="mm")
+    icon(img, (W / 2, H * 0.355))
+    s, tr = fit(label, 12 * SC, 2.0 * SC, W - 30 * SC, floor=6)
+    tracked(img, (W / 2, H * 0.762), label, s, tr, anchor="mm")
     return save(img, name)
 
 
@@ -314,6 +314,52 @@ def ic_stairs(img, c):
     _gold(img, f)
 
 
+def ic_duck(img, c):
+    x, y = c
+    def f(d):
+        # three lane stripes the duck is crossing
+        for i in range(-1, 2):
+            lx = x + i * 11 * SC
+            d.line([(lx, y - 14 * SC), (lx, y + 13 * SC)],
+                   fill=(255, 255, 255, 90), width=2)
+        # duck: body, head, beak
+        d.ellipse([x - 9 * SC, y - 1 * SC, x + 5 * SC, y + 9 * SC],
+                  fill=(255, 255, 255, 240))
+        d.ellipse([x + 1 * SC, y - 9 * SC, x + 10 * SC, y], 
+                  fill=(255, 255, 255, 255))
+        d.polygon([(x + 9 * SC, y - 6 * SC), (x + 9 * SC, y - 2 * SC),
+                   (x + 15 * SC, y - 4 * SC)], fill=(255, 255, 255, 255))
+    _gold(img, f)
+
+
+def ic_avia(img, c):
+    """A plane climbing away over the water, with its trail behind it."""
+    x, y = c
+
+    def f(d):
+        # horizon and a low sun
+        d.line([(x - 17 * SC, y + 12 * SC), (x + 17 * SC, y + 12 * SC)],
+               fill=(255, 255, 255, 110), width=2)
+        d.arc([x + 2 * SC, y + 6 * SC, x + 14 * SC, y + 18 * SC], 180, 360,
+              fill=(255, 255, 255, 130), width=2)
+        # climbing trail, fading back down to the left
+        for i, (tx, ty, a) in enumerate([(-14, 9, 90), (-10, 5, 130),
+                                         (-6, 1, 175)]):
+            d.ellipse([x + tx * SC - 1.4 * SC, y + ty * SC - 1.4 * SC,
+                       x + tx * SC + 1.4 * SC, y + ty * SC + 1.4 * SC],
+                      fill=(255, 255, 255, a))
+        # the aircraft: a swept delta pointing up and to the right
+        d.polygon([(x + 13 * SC, y - 12 * SC),     # nose
+                   (x + 5 * SC, y - 2 * SC),
+                   (x - 3 * SC, y - 1 * SC),       # port wing tip
+                   (x + 2 * SC, y - 6 * SC),
+                   (x - 1 * SC, y - 10 * SC),      # tail
+                   (x + 5 * SC, y - 8 * SC)],
+                  fill=(255, 255, 255, 250))
+
+    _gold(img, f)
+
+
 def build():
     deco_button("btn_double", "DOUBLE", 92, 38, fs=11, tracking=3)
     deco_button("btn_split", "SPLIT", 92, 38, fs=11, tracking=3)
@@ -334,6 +380,8 @@ def build():
     lobby_tile("lt_bj", "BLACKJACK", ic_bj)
     lobby_tile("lt_roulette", "ROULETTE", ic_roulette)
     lobby_tile("lt_stairs", "STAIRS", ic_stairs)
+    lobby_tile("lt_duck", "DUCK ROAD", ic_duck)
+    lobby_tile("lt_avia", "AVIAMASTERS", ic_avia)
 
 
 if __name__ == "__main__":

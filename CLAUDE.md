@@ -50,13 +50,36 @@ them. When a change touches what is shown, assert on what is rendered
 (`tests/play_blackjack.js` reconstructs the digit sprites and compares) and run
 `make mocks`.
 
-**Watch the clone budget.** Scratch caps clones at 300. Currently 241 are alive.
-`src/build.py` prints nothing about this, so count before adding a clone-heavy
-feature: `tests/play_blackjack.js` asserts `< 300`.
+**Watch the clone budget.** Scratch caps clones at 300. Currently 224 clones are
+alive at boot, and roulette adds up to 49 chips on top, so the real worst case
+is 273 — under 30 spare. `src/build.py` prints nothing about this, so count before adding a
+clone-heavy feature: `tests/play_blackjack.js` and `tests/play_duck.js` both
+assert `< 300`.
 
-**Payout tables are solved, not hand-written.** `src/tables.py` and
-`src/tables2.py` compute every multiplier to a target house edge and assert the
-result. Change the target there; never edit a multiplier by hand.
+**End a round atomically.** Aviamasters set `roundOn = 0` when the flight ended
+and raised `busy` a beat later, leaving one frame where FLY was visible again
+while settlement was still pending — a click in that frame started a second
+round on top of the first. Whatever ends a round must clear `roundOn` and raise
+`busy` in the same non-yielding step.
+
+**Payout tables are solved, not hand-written.** `src/tables.py`,
+`src/tables2.py` and `src/tables3.py` compute every multiplier to a target house
+edge and assert the result. Change the target there; never edit a multiplier by
+hand. The assertions run against the *rounded* values that ship, not the exact
+ones, so what a player is paid is what was verified.
+
+**Decide the outcome before you animate it.** Duck Road rolls the hop, then
+plays the traffic to match. If a collision decided the payout instead,
+correctness would depend on frame timing and could not be proven on the fast
+build - which is the guarantee the whole suite rests on. Real crash games work
+this way too.
+
+**Sprites driven by `forever` loops need a frame to catch up.** Button
+visibility and the digit readouts repaint from `forever` loops, so reading them
+in the same tick that `busy` clears gives you the *previous* frame. Three
+assertions in `tests/play_duck.js` failed this way before they were made to
+settle first; none of them was a real bug. Poll until the value stabilises
+rather than asserting immediately.
 
 ## Layout
 
@@ -67,10 +90,16 @@ src/
   blocks.py      block DSL: when_flag(), if_else(), item_of(), Proc(), ...
   deco.py        art style system: palette, gold gradients, chamfered panels
   assets_v11.py  backdrop, buttons, cards, slots, plinko, mines, digits
-  assets_v2.py   roulette layout + wheel, stairs, 6-slot lobby
+  assets_v2.py   roulette layout + wheel, stairs, lobby tiles
+  assets_v3.py   duck road: road panel, duck, traffic, lane ladder, egg
+                 (owns the lane geometry build.py positions sprites from)
+  assets_v4.py   aviamasters: sea and sky, seaplane, ships, splash
+                 (likewise owns the flight-path geometry)
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
+  tables3.py     duck road (4 modes) solver, base + golden-egg ladders
+  tables4.py     aviamasters crash distribution + climb constants
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
@@ -79,6 +108,8 @@ tests/
   play_blackjack.js   full blackjack rules vs an independent implementation
   play_games.js       roulette (all bet types) + stairs (all 5 modes)
   play_core.js        slots, plinko (9 tables), mines (4 tables), navigation
+  play_duck.js        duck road: table vs an independent solve, every hop
+  play_avia.js        aviamasters: landing point, climb, cash-out, auto
 tools/
   mock.py        composite every screen at exact sprite coordinates
 ```
@@ -93,6 +124,8 @@ tools/
 | Blackjack | standard | double, split, insurance, dealer peek, 3:2 naturals |
 | Roulette | 97.30% | European single zero; every bet type returns exactly 36/37 |
 | Stairs | 96% RTP | 9 rows, 5 modes from 4-tile/1-bomb to 4-tile/3-bomb |
+| Duck Road | 96% RTP | 12 lanes, 4 modes; 25% of runs hide a 3x golden egg |
+| Aviamasters | 96% RTP | crash; landing point drawn at take-off, up to 9600x, auto cash-out |
 
 ## Known limitations
 

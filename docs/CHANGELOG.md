@@ -3,6 +3,77 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.3
+
+**Aviamasters.** An eighth game, and the first that is not turn-based: a
+seaplane climbs, the multiplier runs, and you bail out before it ditches. The
+landing point is drawn once at take-off from the standard crash distribution,
+`P(land >= x) = 0.96 / x`, so every cash-out point returns exactly 0.96 and the
+whole thing is verifiable per round rather than statistically. Ceiling 9,600x.
+
+**Auto cash-out** at 1.5x / 2x / 5x / 10x, in the selector slot the other games
+use for difficulty. It fires inside the climb loop the instant the target is
+reached, so it cannot overshoot by a frame.
+
+**Capturing a cash-out is atomic.** Reading the multiplier and crediting the win
+happen in one warped procedure, so a click can never land between the two and
+pay against a multiplier the player did not see.
+
+**Bug found while testing:** the round ended by setting `roundOn = 0`, then
+raised `busy` a beat later. For one frame FLY was visible again while settlement
+was still pending, and a click there started a second round on top of the first.
+Both now happen in the same non-yielding step. The harness found it by being
+unable to start a round, not by seeing a double round — worth remembering.
+
+**A crash readout needs an "x".** The digit sprite gained a 14th costume,
+appended after the blank so every existing costume index kept its meaning.
+
+**Lobby** is now a 4x2 grid of eight tiles.
+
+Verified: 17/17 aviamasters (every landing point exact against the formula, the
+climb against GROWTH^tick, auto cash-out across three targets), 22/22 duck road,
+15/15 blackjack, 22/22 roulette + stairs, 29/29 core, overlap clean across both
+new screens. 224 clones at boot, 273 worst case.
+
+**Also:** builds are byte-reproducible now. `zipfile` was stamping each entry
+with the current time, so two builds of identical content differed and
+`git status` went dirty after every build; entries now carry a fixed timestamp.
+
+**Also:** three harnesses asserted clone counts 600ms after the green flag, but
+the spawn loops need ~800ms (one clone per frame, PITFALLS 5) and Duck Road
+pushed them over. They now wait for the count to settle. The roulette zero test
+kept spinning until zero turned up rather than hoping it appeared in 70 spins —
+it has a 15% chance of not.
+
+## v3.2
+
+**Duck Road.** A seventh game: the duck crosses twelve lanes of traffic one hop
+at a time, the multiplier climbing with each lane, cash out whenever. Four modes
+from EASY (90% a lane) to DAREDEVIL (45%), topping out at 9,281x — or 27,845x
+carrying the egg.
+
+**The golden egg.** One run in four hides an egg on a random lane. Reaching it
+triples the payout for the rest of the run and the whole on-screen ladder
+switches to the egg values. `src/tables3.py` divides the egg's expected
+contribution back out of the base ladder, so every cash-out point still returns
+exactly 0.96 — asserted against the rounded values that ship, not the exact
+ones.
+
+**Traffic is presentation, not physics.** Each hop is rolled before anything
+moves and the cars animate to match. Tying the payout to collision timing would
+have made correctness unprovable on the fast build.
+
+**Lobby rebuilt** as four tiles across the top and three centred beneath; tiles
+shrank from 130x84 to 100x76 to fit four across.
+
+**`tests/overlap.js` never visited the new screen.** It passed on Duck Road
+while testing nothing there — the same blind spot that shipped the v3 HIT bug.
+It now sweeps screen 7 idle and mid-run, and knows `DuckSel`.
+
+Verified: 22/22 duck road (96-entry table against an independent solve, every
+hop checked against the roll the VM made), 15/15 blackjack, 22/22 roulette +
+stairs, 29/29 core, overlap clean. 212 clones at boot, 261 worst case.
+
 ## v3.1
 
 **Fixed:** HIT was unclickable in blackjack. The bet plaque and its digits sat at

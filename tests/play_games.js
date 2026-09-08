@@ -36,16 +36,33 @@ function rouletteExpect(bets, w) {
   return pay;
 }
 
+// Clone spawn loops in `when flag clicked` run one clone per frame (PITFALLS 5),
+// so the full set is not present for the better part of a second. Wait for the
+// count to stop growing rather than guessing a sleep - a fixed 600ms silently
+// under-counted once Duck Road added per-frame work.
+async function bootSettle(vm, sleep, cap = 6000) {
+  const total = () => vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
+  let last = -1, stable = 0, waited = 0;
+  while (waited < cap) {
+    await sleep(50); waited += 50;
+    const n = total();
+    stable = (n === last && n > 0) ? stable + 1 : 0;
+    last = n;
+    if (stable >= 3) return n;
+  }
+  return last;
+}
+
 (async () => {
   await vm.loadProject(fs.readFileSync(process.argv[2]));
   vm.start(); vm.greenFlag();
-  await sleep(600);
+  await bootSettle(vm, sleep);
 
   const tile = n => cl('MenuTile').find(t => Number(lv(t, 'mIdx')) === n);
   const act = sp('ActionBtn'), back = sp('BackBtn');
   const spot = i => cl('RSpot').find(t => Number(lv(t, 'sIdx')) === i);
 
-  check('boot: 6 lobby tiles', cl('MenuTile').length === 6, 'got ' + cl('MenuTile').length);
+  check('boot: 8 lobby tiles', cl('MenuTile').length === 8, 'got ' + cl('MenuTile').length);
   check('boot: 49 roulette spots', cl('RSpot').length === 49, 'got ' + cl('RSpot').length);
   check('boot: 36 stair tiles', cl('StairTile').length === 36, 'got ' + cl('StairTile').length);
   check('boot: 9 stair mult labels', cl('StairMult').length === 9);
@@ -77,7 +94,7 @@ function rouletteExpect(bets, w) {
   let rbad = 0, zeroSeen = 0, hits = {};
   const plan = { 1: 5, 18: 5, 38: 10, 40: 10, 42: 10, 45: 10, 49: 10 };
   //             0    17   RED    ODD    LOW    2nd12  COL3
-  for (let n = 0; n < N; n++) {
+  async function spinOnce() {
     setv('chips', 100000); await sleep(40);
     for (const k of Object.keys(plan)) {
       const want = plan[k];
@@ -101,14 +118,23 @@ function rouletteExpect(bets, w) {
     if (got !== exp) { rbad++;
       if (rbad < 6) console.log(`  ROULETTE MISMATCH n=${w} got ${got} exp ${exp}`); }
     if (Number(gv('rStake')) !== 0) { rbad++; console.log('  stake not cleared'); }
+    return w;
   }
+
+  for (let n = 0; n < N; n++) await spinOnce();
+  // Zero lands once in 37, so a fixed count leaves a ~15% chance of never
+  // seeing it and failing a working wheel (PITFALLS 12). Keep spinning until
+  // it turns up, the way the blackjack harness exercises its rare paths.
+  let extra = 0;
+  while (zeroSeen === 0 && extra < 400) { await spinOnce(); extra++; }
   check(`roulette: ${N} spins exact across all bet types`, rbad === 0, rbad + ' mismatches');
   const nums = Object.keys(hits).map(Number);
   check('roulette: numbers within 0..36',
         Math.min(...nums) >= 0 && Math.max(...nums) <= 36,
         `range ${Math.min(...nums)}..${Math.max(...nums)}, ${nums.length} distinct`);
   check('roulette: zero occurred and paid correctly', zeroSeen > 0,
-        zeroSeen + ' zeros in ' + N + ' spins');
+        `${zeroSeen} zeros in ${N + extra} spins` +
+        (extra ? ` (${extra} extra to find one)` : ''));
 
   // ================================================ STAIRS
   click(back); await sleep(250); click(tile(6)); await sleep(300);

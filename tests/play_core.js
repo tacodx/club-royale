@@ -36,18 +36,35 @@ function readout(field) {
   }).join('');
 }
 
+// Clone spawn loops in `when flag clicked` run one clone per frame (PITFALLS 5),
+// so the full set is not present for the better part of a second. Wait for the
+// count to stop growing rather than guessing a sleep - a fixed 600ms silently
+// under-counted once Duck Road added per-frame work.
+async function bootSettle(vm, sleep, cap = 6000) {
+  const total = () => vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
+  let last = -1, stable = 0, waited = 0;
+  while (waited < cap) {
+    await sleep(50); waited += 50;
+    const n = total();
+    stable = (n === last && n > 0) ? stable + 1 : 0;
+    last = n;
+    if (stable >= 3) return n;
+  }
+  return last;
+}
+
 (async () => {
   await vm.loadProject(fs.readFileSync(process.argv[2]));
   vm.start(); vm.greenFlag();
-  await sleep(500);
+  await bootSettle(vm, sleep);
 
   // ------------------------------------------------ boot
   check('boot: chips 1000', Number(gv('chips')) === 1000);
   check('boot: bet 50', Number(gv('bet')) === 50);
   check('boot: clone counts',
-    cl('MenuTile').length === 6 && cl('Reel').length === 3 &&
+    cl('MenuTile').length === 8 && cl('Reel').length === 3 &&
     cl('MineTile').length === 25 && cl('Card').length === 18 &&
-    cl('Digit').length === 32 && cl('Bucket').length === 17,
+    cl('Digit').length === 40 && cl('Bucket').length === 17,
     `menu ${cl('MenuTile').length} reel ${cl('Reel').length} mine ${cl('MineTile').length} card ${cl('Card').length} digit ${cl('Digit').length} bucket ${cl('Bucket').length}`);
   check('digits: chips readout matches', readout(1) === '1000', 'showing ' + readout(1));
 

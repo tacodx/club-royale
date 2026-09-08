@@ -356,10 +356,26 @@ class Project:
             "meta": {"semver": "3.0.0", "vm": "2.3.0", "agent": ""},
         }
 
+    @staticmethod
+    def _entry(name):
+        """A zip entry with a fixed timestamp.
+
+        zipfile stamps each entry with the current time, which made two builds
+        of identical content differ byte for byte - so `git status` went dirty
+        after every build and a diff could never tell you whether anything had
+        actually changed. Block ids are already deterministic (a counter), so
+        pinning the timestamp is all it takes to make the whole .sb3
+        reproducible.
+        """
+        zi = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        zi.external_attr = 0o644 << 16
+        return zi
+
     def save(self, path):
         pj = json.dumps(self.to_json())
         with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
-            z.writestr("project.json", pj)
-            for name, data in self.assets.items():
-                z.writestr(name, data)
+            z.writestr(self._entry("project.json"), pj)
+            for name, data in sorted(self.assets.items()):
+                z.writestr(self._entry(name), data)
         return path

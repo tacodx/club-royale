@@ -1,0 +1,79 @@
+name: build and verify
+
+# CLAUDE.md's central rule is "run make test before claiming any change works".
+# Nothing enforced it until now: the compiler happily emits a valid .sb3 that
+# plays wrongly, so static validity proves nothing and only the headless VM
+# suite does.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r requirements.txt
+          npm ci
+
+      - name: Solve the payout tables
+        run: make tables
+
+      - name: Build the shippable file
+        run: make build
+
+      - name: Builds are byte-reproducible
+        # src/sb3.py pins zip timestamps so identical content produces an
+        # identical file. If this drifts, `git status` goes dirty after every
+        # build and a diff stops meaning anything.
+        run: |
+          md5sum dist/ClubRoyale.sb3 > /tmp/first.md5
+          make build
+          md5sum dist/ClubRoyale.sb3 > /tmp/second.md5
+          diff /tmp/first.md5 /tmp/second.md5 || {
+            echo "::error::two builds of identical source produced different bytes"
+            exit 1
+          }
+
+      - name: The committed .sb3 matches the source
+        run: |
+          if ! git diff --quiet -- dist/ClubRoyale.sb3; then
+            echo "::error::dist/ClubRoyale.sb3 is stale - run 'make build' and commit it"
+            git diff --stat -- dist/ClubRoyale.sb3
+            exit 1
+          fi
+
+      - name: Full suite on the fast build
+        run: make test
+
+      - name: Render every screen
+        run: make mocks
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screens
+          path: mocks/
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClubRoyale.sb3
+          path: dist/ClubRoyale.sb3
