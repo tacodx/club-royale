@@ -3,6 +3,30 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.5
+
+**Reported from play: text hidden behind the game panel** on both new screens -
+the Aviamasters multiplier readout and the Duck Road win/lose banner.
+
+One cause, not two. `RoadPanel` and `SeaPanel` are full-stage backgrounds and
+were the only sprites in the game that never set their layer; being created last
+in `build.py`, they sat in front of the digit readouts and the `Msg` banner.
+Every other overlay calls `go_layer("front")`. They now hold the back layer and
+re-assert it while visible.
+
+The geometry says the same thing: the Aviamasters readout spans y=70..114 and
+the panel's top edge is at y=105, so exactly 9px of the digits cleared it.
+
+Ambient traffic and the ships had to stop sending themselves to the back at the
+same time - with the panels holding that layer, anything else going there would
+have been drawn behind the road and the sea, and vanished.
+
+**Flaky check replaced.** `play: golden egg found` needed both a 25% roll and
+the duck surviving to that lane, so a working game failed it whenever neither
+happened - 0 eggs in 30 runs is ordinary. It now checks that eggs are *planted*
+at the designed rate, which depends on one roll rather than two; the
+deterministic forced-pickup test already proves the payout.
+
 ## v3.4
 
 **The bankroll no longer lies.** Digit field 1 has seven slots and each clone

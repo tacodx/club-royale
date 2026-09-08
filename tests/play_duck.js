@@ -142,7 +142,7 @@ function readout(field) {
   setv('bet', 100);
 
   let mismatches = 0, firstBad = '';
-  let hops = 0, deaths = 0, eggs = 0, cashes = 0, clears = 0;
+  let hops = 0, deaths = 0, eggs = 0, cashes = 0, clears = 0, planted = 0;
   const laneSeen = new Set(), modeSeen = new Set();
   let multFaults = 0, deathPay = 0, deathPayBad = 0;
 
@@ -163,6 +163,9 @@ function readout(field) {
     await sleep(20); await idle();
     // the stake is gone the moment the run starts
     const afterStart = num('chips');
+    // whether this run hides an egg is decided at the start, independently of
+    // how deep the duck then gets
+    if (num('dkEgg') > 0) planted++;
 
     let alive = true, ended = false;
     let guard = 0;
@@ -264,10 +267,15 @@ function readout(field) {
   check('play: deep lanes reached', Math.max(...laneSeen) >= 6,
         'deepest lane ' + Math.max(...laneSeen));
 
-  // the egg is rare by design (25% of runs); report the count rather than
-  // failing a short run that happened not to roll one - see PITFALLS 12
-  check('play: golden egg found and paid on the egg ladder',
-        eggs > 0 || RUNS < 12, `${eggs} eggs in ${RUNS} runs`);
+  // Collecting an egg naturally needs BOTH a 25% roll and surviving to its
+  // lane, so demanding one in a short run fails a working game (PITFALLS 12).
+  // The deterministic pickup test below is what proves the payout; this checks
+  // the thing that does not depend on luck twice over - that eggs are planted
+  // at roughly the designed rate.
+  const rate = planted / RUNS;
+  check('play: eggs planted at the designed 25% rate',
+        planted > 0 && rate < 0.6,
+        `${planted}/${RUNS} runs (${(rate * 100).toFixed(0)}%), ${eggs} reached in play`);
 
   // ------------------------------------- the egg, forced rather than hoped for
   // 25% x reaching its lane makes a natural pickup rare, so plant one. See

@@ -1502,8 +1502,8 @@ CARTOP, CARBOT = AV3.CAR_TOP, AV3.CAR_BOT
 road = p.sprite("RoadPanel")
 C(road, "road", "duckroad")
 road.x, road.y, road.visible = 0, 0, False
-road.script(when_flag(), goto(0, 0))
-road.script(when_flag(), vis([7]))
+road.script(when_flag(), goto(0, 0), go_layer("back"))
+road.script(when_flag(), vis([7], [go_layer("back")]))
 
 # --- multiplier ladder, one label above each lane
 dmul = p.sprite("DuckMult")
@@ -1590,7 +1590,7 @@ car.script(
                               and_(eq(roundOn, 1), eq(cLane, dkTgt)))),
                      switch_costume_r(rand(1, 3), "c1"),
                      goto(item_of(duckX, cLane), CARTOP),
-                     go_layer("back"), show(),
+                     show(),
                      glide(1.15, item_of(duckX, cLane), CARBOT),
                      hide()),
                  wait(rand(0.25, 1.1))],
@@ -1704,8 +1704,8 @@ PRECN = T4["prec"]
 sea = p.sprite("SeaPanel")
 C(sea, "sea", "avsea")
 sea.x, sea.y, sea.visible = 0, 0, False
-sea.script(when_flag(), goto(0, 0))
-sea.script(when_flag(), vis([8]))
+sea.script(when_flag(), goto(0, 0), go_layer("back"))
+sea.script(when_flag(), vis([8], [go_layer("back")]))
 
 # --- ships riding the swell, purely scenic
 ship = p.sprite("AvShip")
@@ -1724,7 +1724,7 @@ ship.script(
     set_effect("ghost", 30),
     forever(
         if_else(eq(screen, 8),
-                [go_layer("back"), show(),
+                [show(),
                  change_var(sX, -0.6),
                  if_(lt(sX, -235), set_var(sX, 235)),
                  goto(sX, add(AV4.SHIP_Y, mul(sIdx2, 6)))],
