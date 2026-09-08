@@ -1,0 +1,13 @@
+{
+  "name": "club-royale",
+  "version": "3.1.0",
+  "private": true,
+  "description": "Headless verification harness for the Club Royale Scratch project",
+  "scripts": {
+    "load": "node tests/load.js dist/ClubRoyale.sb3",
+    "overlap": "node tests/overlap.js dist/ClubRoyale.sb3"
+  },
+  "dependencies": {
+    "scratch-vm": "^2.3.0"
+  }
+}
