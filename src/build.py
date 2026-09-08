@@ -1224,7 +1224,10 @@ wptr = p.sprite("Pointer")
 C(wptr, "p", "pointer")
 wptr.x, wptr.y, wptr.visible = 0, 133, False
 wptr.script(when_flag(), goto(0, 133), hide())
-wptr.script(when_bc(p, "rSpin"), go_layer("front"), show())
+wptr.script(when_bc(p, "rSpin"), show(),
+            # re-front for the length of the spin, so the popup
+            # cannot land on top of it (same race as the wheel)
+            repeat(56, go_layer("front"), wait(0.02)))
 wptr.script(when_bc(p, "rSpinEnd"), hide())
 wptr.script(when_bc(p, "screenChanged"), hide())
 
@@ -1248,8 +1251,10 @@ wheel.script(
            change_var(wStp, 1),
            set_var(wU, sub(1, div(wStp, 52))),
            if_(eq(mod(wStp, 6), 0), SFX("tick")),
+           go_layer("front"),
            point_dir(sub(90, mul(wTgt, sub(1, mul(wU, mul(wU, wU))))))),
     point_dir(sub(90, mul(sub(item_num_of(wheelOrd, rNum), 1), div(360, 37)))),
+    go_layer("front"),
 )
 
 rctl = p.sprite("RouletteCtrl")

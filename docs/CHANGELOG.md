@@ -3,6 +3,28 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.8
+
+**Roulette's wheel hid behind its own popup** — reported from play, and caused
+by v3.6 fixing `go_layer()`. WheelPanel, Wheel and Pointer all send themselves
+to the front on the same `rSpin` broadcast, so which ends up on top depends on
+handler order. While the opcode was dead that was harmless: static creation
+order put the wheel above the panel. The moment the block started working, the
+panel could win the race and swallow the wheel. The wheel and pointer now
+re-front for the length of the spin.
+
+`tests/play_games.js` asserts it, using `runtime.executableTargets` — which
+scratch-vm keeps in lockstep with the renderer's draw list, so z-order is
+checkable headless after all.
+
+**Two Duck Road assertions were reading state the game had already reset.**
+The egg flag was checked after the hop returned, but reaching lane 12 ends the
+run and clears it as part of settling — a mismatch needing an egg *at* lane 12
+and a full 12-lane survival, about one run in 170. And the plant-rate check
+read `dkEgg` after the hop, where a death has already cleared it, so it
+reported 10% against a designed 25% and passed only because its bound was
+loose. Both now sample while the run is live; the rate reads 23%.
+
 ## v3.7
 
 **Aviamasters was never Aviamasters.** It was built from "crash-style" rather

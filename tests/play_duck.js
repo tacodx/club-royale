@@ -160,12 +160,19 @@ function readout(field) {
 
     // start the run: GO both deducts and takes lane 1
     click(act);
-    await sleep(20); await idle();
+    // catch dkEgg mid-hop: it is drawn before the hop starts and cleared again
+    // if the duck dies, which happens at the END of that same hop
+    let plantedThisRun = 0;
+    for (let i = 0; i < 200; i++) {
+      if (num('busy') === 1) { plantedThisRun = num('dkEgg') > 0 ? 1 : 0; break; }
+      await sleep(2);
+    }
+    await idle();
     // the stake is gone the moment the run starts
     const afterStart = num('chips');
     // whether this run hides an egg is decided at the start, independently of
     // how deep the duck then gets
-    if (num('dkEgg') > 0) planted++;
+    planted += plantedThisRun;
 
     let alive = true, ended = false;
     let guard = 0;
@@ -183,7 +190,10 @@ function readout(field) {
         laneSeen.add(lane);
         const eggLane = num('dkEgg');
         if (eggLane === lane && !got) { got = 1; eggs++; }
-        if (num('dkGot') !== got) {
+        // Reaching lane 12 ends the run, and the game clears dkEgg/dkGot as
+        // part of settling it - so by the time the hop returns, the flag has
+        // legitimately been reset. Only assert it while the run is still live.
+        if (lane < LANES && num('dkGot') !== got) {
           mismatches++;
           firstBad = firstBad || `run ${run} lane ${lane}: egg flag ${num('dkGot')} vs ${got}`;
           break;
@@ -273,8 +283,10 @@ function readout(field) {
   // the thing that does not depend on luck twice over - that eggs are planted
   // at roughly the designed rate.
   const rate = planted / RUNS;
+  // 25% by design; allow a wide band because RUNS is small, but tight enough
+  // that a broken draw (never, or always) fails
   check('play: eggs planted at the designed 25% rate',
-        planted > 0 && rate < 0.6,
+        rate > 0.10 && rate < 0.45,
         `${planted}/${RUNS} runs (${(rate * 100).toFixed(0)}%), ${eggs} reached in play`);
 
   // ------------------------------------- the egg, forced rather than hoped for
