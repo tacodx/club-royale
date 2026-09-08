@@ -199,7 +199,7 @@ def stair_mults():
 
 
 # ========================================================= lobby v2
-LW, LH = 100, 76
+LW, LH = 82, 70
 
 
 def lobby_tile(name, label, icon):
@@ -363,6 +363,37 @@ def ic_crash(img, c):
     _gold(img, f)
 
 
+def ic_avia(img, c):
+    """A propeller plane over the water, between two carriers."""
+    x, y = c
+
+    def f(d):
+        # the waterline and two decks
+        d.line([(x - 17 * SC, y + 11 * SC), (x + 17 * SC, y + 11 * SC)],
+               fill=(255, 255, 255, 90), width=2)
+        for dx in (-13, 13):
+            d.polygon([(x + dx * SC - 5 * SC, y + 8 * SC),
+                       (x + dx * SC + 5 * SC, y + 8 * SC),
+                       (x + dx * SC + 4 * SC, y + 11 * SC),
+                       (x + dx * SC - 4 * SC, y + 11 * SC)],
+                      fill=(255, 255, 255, 170))
+        # the plane, mid-crossing
+        d.polygon([(x - 7 * SC, y - 3 * SC), (x + 7 * SC, y - 4 * SC),
+                   (x + 10 * SC, y - 1 * SC), (x + 6 * SC, y + 1 * SC),
+                   (x - 7 * SC, y)], fill=(255, 255, 255, 250))
+        d.polygon([(x - 7 * SC, y - 4 * SC), (x - 4 * SC, y - 9 * SC),
+                   (x - 1 * SC, y - 4 * SC)], fill=(255, 255, 255, 240))
+        d.rectangle([x - 4 * SC, y - 8 * SC, x + 5 * SC, y - 6 * SC],
+                    fill=(255, 255, 255, 230))
+        # two orbs in the sky ahead
+        for ox, oy in [(11, -8), (14, 3)]:
+            d.ellipse([x + ox * SC - 2.2 * SC, y + oy * SC - 2.2 * SC,
+                       x + ox * SC + 2.2 * SC, y + oy * SC + 2.2 * SC],
+                      outline=(255, 255, 255, 200), width=2)
+
+    _gold(img, f)
+
+
 def build():
     deco_button("btn_double", "DOUBLE", 92, 38, fs=11, tracking=3)
     deco_button("btn_split", "SPLIT", 92, 38, fs=11, tracking=3)
@@ -385,6 +416,7 @@ def build():
     lobby_tile("lt_stairs", "STAIRS", ic_stairs)
     lobby_tile("lt_duck", "DUCK ROAD", ic_duck)
     lobby_tile("lt_crash", "CRASH", ic_crash)
+    lobby_tile("lt_avia", "AVIAMASTERS", ic_avia)
 
 
 if __name__ == "__main__":

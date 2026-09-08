@@ -1,10 +1,11 @@
 # Club Royale
 
-An art-deco casino for **Scratch 3** — eight games, generated entirely from code.
+An art-deco casino for **Scratch 3** — nine games, generated entirely from code.
 
-![eight games](docs/screens.png)
+![nine games](docs/screens.png)
 
-Slots · Plinko · Mines · Blackjack · Roulette · Stairs · Duck Road · Crash
+Slots · Plinko · Mines · Blackjack · Roulette · Stairs · Duck Road · Crash ·
+Aviamasters
 
 Nothing here was made in the Scratch editor. A Python compiler emits
 `project.json`, renders every image, synthesises every sound and zips the result
@@ -37,10 +38,11 @@ Requires Python 3 (pillow, numpy) and Node (scratch-vm).
 | Stairs | 96% | 9 rows, 5 modes, up to 251,658x on Master |
 | Duck Road | 96% | 12 lanes, 4 modes, hidden 3x golden egg, up to 27,845x |
 | Crash | 96% | rocket climb, up to 9,600x, auto cash-out at 1.5x/2x/5x/10x |
+| Aviamasters | 96% | 14 orbs on the route, rockets halve, up to 250x |
 
 Every multiplier is solved to a target house edge by `src/tables.py`,
-`src/tables2.py`, `src/tables3.py` and `src/tables4.py`, and verified per-round
-by the test suite rather than statistically.
+`src/tables2.py`, `src/tables3.py`, `src/tables4.py` and `src/tables5.py`, and
+verified per-round by the test suite rather than statistically.
 
 ## Verification
 
@@ -53,6 +55,7 @@ node tests/play_games.js     dist/ClubRoyale.sb3 50
 node tests/play_core.js      dist/ClubRoyale.sb3 40 6 8
 node tests/play_duck.js      dist/ClubRoyale.sb3 40
 node tests/play_crash.js     dist/ClubRoyale.sb3 20
+node tests/play_avia.js      dist/ClubRoyale.sb3 30
 node tests/overlap.js        dist/ClubRoyale.sb3
 ```
 

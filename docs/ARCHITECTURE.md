@@ -67,8 +67,8 @@ blackjack action buttons.
 
 ## Screen routing
 
-`screen` holds 0–8: lobby, slots, plinko, mines, blackjack, roulette, stairs,
-duck road, crash.
+`screen` holds 0–9: lobby, slots, plinko, mines, blackjack, roulette, stairs,
+duck road, crash, aviamasters.
 The stage has one `when I receive` per screen that sets `screen`, resets
 per-round state and then broadcasts `screenChanged`.
 
@@ -103,10 +103,28 @@ Scratch has no 2-D lists.
 | `stairMults` | 5 blocks of 9 | `(stDiff-1)*9 + (stRow-1)` |
 | `duckMults` | 2 x 4 blocks of 12 | `(dkMode-1)*12 + dkLane + 48*dkGot` |
 | `rBets` | 49 slots | 1 = number 0, 2–37 = numbers 1–36, 38–49 = outside bets |
+| `amRamp` | 14 slots | per-slot ditch odds out of 1000, indexed by `amSlot` |
+| `amCum`, `amA`, `amB` | 6 orbs | cumulative weight, and the orb's affine map |
 
 Crash needs no table: `src/tables4.py` only fixes the constants and asserts
 the distribution, because the failure point is sampled directly as
 `HOUSE * PREC / rand(1, PREC)`.
+
+`src/tables5.py` solves Aviamasters per slot rather than as a single ladder.
+Every orb is an affine map `v -> a*v + b`, so the value distribution after each
+slot can be walked exactly; from that, `alive_k = HOUSE / E[V_k]` gives the
+survival curve that makes **every** cash-out point worth 0.96, and
+`d_k = 1 - alive_k/alive_(k-1)` the per-slot ditch odds that ship as `amRamp`.
+A flat ditch rate does not work — it puts the optimal stopping point at slot 1
+— and the docstring records why.
+
+That solver has to round the way *Scratch* rounds, not the way Python does.
+The runtime computes `round(v * 100) / 100`, and Scratch's round block is JS
+`Math.round`: halves go away from zero. Python's `round()` goes to even, and
+the difference is reachable — halving 1.25 gives exactly 0.625, so Python says
+0.62 where the game says 0.63. Modelling it Python's way put the shipped ramp
+1/1000 out at three slots; `tests/play_avia.js` caught it by solving the table
+independently.
 
 `src/tables3.py` solves Duck Road as `HOUSE / (p**n * bonus(n))`, where
 `bonus(n)` is the expected golden-egg contribution at lane n. It emits **two**

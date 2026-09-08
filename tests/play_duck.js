@@ -72,7 +72,9 @@ function readout(field) {
   // ------------------------------------------------------------ boot state
   check('boot: 12 lane labels', cl('DuckMult').length === 12, 'got ' + cl('DuckMult').length);
   check('boot: 4 traffic clones', cl('DuckCar').length === 4, 'got ' + cl('DuckCar').length);
-  check('boot: 8 lobby tiles', cl('MenuTile').length === 8, 'got ' + cl('MenuTile').length);
+  const games = sp('MenuTile').getCostumes().length;
+  check('boot: one lobby tile per game', cl('MenuTile').length === games,
+        `${cl('MenuTile').length} tiles, ${games} games`);
   const clones = vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
   check('boot: clone budget under 300', clones < 300, clones + ' clones');
 

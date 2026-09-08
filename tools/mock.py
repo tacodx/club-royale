@@ -65,9 +65,14 @@ SPOTY = [50] + [24 + ((n - 1) % 3) * 26 for n in range(1, 37)] + \
 
 def lobby():
     c = stage(); put(c, "title", 0, 106)
+    # nine tiles: five across the top, four centred beneath (see build.py)
     for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines", "lt_bj",
-                           "lt_roulette", "lt_stairs", "lt_duck", "lt_avia"], 1):
-        put(c, t, -162 + 108 * ((i - 1) % 4), 30 - 90 * ((i - 1) // 4))
+                           "lt_roulette", "lt_stairs", "lt_duck", "lt_crash",
+                           "lt_avia"], 1):
+        if i <= 5:
+            put(c, t, -176 + 88 * (i - 1), 30)
+        else:
+            put(c, t, -132 + 88 * (i - 6), -58)
     chrome(c); return c
 
 
@@ -177,6 +182,35 @@ def crash(mult="4.86", flying=True):
     chrome(c); return c
 
 
+def avia(slot=6, mult="3.75", flying=True):
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v4 as AV4, assets_v5 as AV5
+    c = stage()
+    put(c, "avsky", 0, 0)
+    # scenery orbs drifting past, one per clone
+    for i, ox in enumerate([150, 60, -40, -130, 190], 1):
+        put(c, f"avorb{2 + (i % 5)}", ox, AV5.PLANE_LO + 12 + 22 * (i % 4),
+            ghost=0.3)
+    prog = slot / 14
+    if not flying:
+        px, py, cost = AV5.CARRIER_L, AV5.DECK_Y + 6, "avplane1"
+    else:
+        px = AV5.PLANE_X
+        py = AV5.PLANE_LO + (AV5.PLANE_HI - AV5.PLANE_LO) * prog
+        cost = "avplane2"
+    put(c, cost, px, py)
+    if flying:                                    # the orb just collected
+        put(c, "avorb4", px + 30, py, size=118, ghost=0.15)
+    dig(c, mult + "x", AV4.MULT_XY[0], AV4.MULT_XY[1], AV4.MULT_GAP)
+    betbar(c); put(c, "sel_auto3", -45, -152)
+    if flying:
+        put(c, "btn_cashout", 158, -152)
+    else:
+        put(c, "btn_takeoff", 52, -152)
+    chrome(c); return c
+
+
 def roulette(spinning=False):
     c = stage()
     for i in range(1, 50):
@@ -235,6 +269,8 @@ SCREENS = {
     "duck_start": lambda: duck(0, False),
     "crash_flight": lambda: crash("4.86", True),
     "crash_idle": lambda: crash("1.00", False),
+    "avia_flight": lambda: avia(6, "3.75", True),
+    "avia_idle": lambda: avia(0, "1.00", False),
     "roulette_bets": lambda: roulette(False),
     "roulette_spin": lambda: roulette(True),
     "blackjack_idle": lambda: blackjack("idle"),
@@ -242,6 +278,31 @@ SCREENS = {
     "blackjack_split": lambda: blackjack("split"),
     "blackjack_insurance": lambda: blackjack("insurance"),
 }
+
+# the nine screens that go in the README banner, one per game
+BANNER = ["slots", "plinko_12", "mines", "blackjack_hand", "roulette_bets",
+          "stairs", "duck_road", "crash_flight", "avia_flight"]
+
+
+def banner(cols=3, cell_w=490, gap=4):
+    """docs/screens.png, composed from the rendered screens.
+
+    Hand-assembled until v3.9, which is why it still showed eight games after
+    the ninth shipped. Generated from BANNER now, so adding a game to SCREENS
+    and to that list is all it takes.
+    """
+    cell_h = round(cell_w * 720 / 960)
+    rows = (len(BANNER) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * cell_w + (cols + 1) * gap,
+                              rows * cell_h + (rows + 1) * gap), (10, 8, 12))
+    for i, name in enumerate(BANNER):
+        im = Image.open(OUT / f"{name}.png").convert("RGB").resize((cell_w, cell_h))
+        sheet.paste(im, (gap + (i % cols) * (cell_w + gap),
+                         gap + (i // cols) * (cell_h + gap)))
+    out = ROOT / "docs" / "screens.png"
+    sheet.save(out)
+    print(f"  docs/screens.png ({len(BANNER)} games)")
+
 
 if __name__ == "__main__":
     A11.build(); A2.build()
@@ -255,3 +316,5 @@ if __name__ == "__main__":
                     (10 + (i % 2) * 965, 10 + (i // 2) * 725))
     sheet.save(OUT / "_all.png")
     print(f"{len(want)} screens -> mocks/_all.png")
+    if all(n in want for n in BANNER):
+        banner()

@@ -6,6 +6,7 @@ import assets_v11 as AV
 import assets_v2 as AV2
 import assets_v3 as AV3
 import assets_v4 as AV4
+import assets_v5 as AV5
 import json
 import sfx as SFXMOD
 
@@ -14,12 +15,14 @@ AV.build()
 AV2.build()
 AV3.build()
 AV4.build()
+AV5.build()
 SFXMOD.build()
 T = AV.T
 from paths import BUILD, SFX_DIR, DIST
 T2 = json.load(open(BUILD / "tables2.json"))
 T3 = json.load(open(BUILD / "tables3.json"))
 T4 = json.load(open(BUILD / "tables4.json"))
+T5 = json.load(open(BUILD / "tables5.json"))
 
 FAST = os.environ.get("FAST") == "1"
 _rw = wait
@@ -106,6 +109,14 @@ canDbl  = p.var("canDbl", 0)
 canSpl  = p.var("canSpl", 0)
 chipsTxt= p.var("chipsTxt", "1000")   # formatted bankroll, <= 7 chars
 cTmp    = p.var("cTmp", 0)        # scratch for the formatter only
+amSlot  = p.var("amSlot", 0)      # orbs crossed so far
+amVal   = p.var("amVal", 1)       # running multiplier
+amOrb   = p.var("amOrb", 1)       # orb drawn for this slot
+amRoll  = p.var("amRoll", 0)      # the draw that chose it
+amAuto  = p.var("amAuto", 1)      # auto cash-out slot, 1 = OFF
+amAt    = p.var("amAt", 0)        # multiplier captured on cash-out
+amCashed= p.var("amCashed", 0)
+amDown  = p.var("amDown", 0)      # 1 once it has ditched
 avU     = p.var("avU", 0)         # the raw landing draw
 avLand  = p.var("avLand", 0)      # multiplier the plane ditches at
 avTick  = p.var("avTick", 0)      # climb counter
@@ -155,13 +166,21 @@ duckMults = p.lst("duckMults", T3["flat"])   # 96: base 1-48, egg 49-96
 duckPct   = p.lst("duckPct", [str(v) for v in T3["pct"]])
 duckX     = p.lst("duckX", [str(v) for v in AV3.LANE_X])
 avAutoVals = p.lst("avAutoVals", [f"{v:g}" for v in T4["auto"]])
+# aviamasters: per-slot ditch odds in thousandths, and the orbs as
+# cumulative weights plus the affine pair (a, b) each one applies
+amRamp = p.lst("amRamp", [str(v) for v in T5["ditchRamp"]])
+amCum  = p.lst("amCum", [str(v) for v in T5["orbCum"]])
+amA    = p.lst("amA", [f"{v:g}" for v in T5["orbA"]])
+amB    = p.lst("amB", [f"{v:g}" for v in T5["orbB"]])
+amLog  = p.lst("amLog", [])   # orbs taken this round, for the harness
 # index into this list == the Digit costume number, so a glyph is one lookup
 digitChars = p.lst("digitChars",
                    [str(d) for d in range(10)] + [".", ",", "", "x", "M", "B"])
 
 SCREENS = {"lobby": 0, "openSlots": 1, "openPlinko": 2, "openMines": 3,
            "openBJ": 4, "openRoulette": 5, "openStairs": 6,
-           "openDuck": 7, "openCrash": 8}
+           "openDuck": 7, "openCrash": 8,
+           "openAvia": 9}
 
 # convenience reporters
 ROWS = lambda: item_of(rowCounts, rowsIdx)
@@ -209,6 +228,9 @@ for name, num in SCREENS.items():
     if num == 8:
         extra = [set_var(mult, 1), set_var(avTick, 0), set_var(avCashed, 0),
                  set_var(avLand, 0)]
+    if num == 9:
+        extra = [set_var(mult, 1), set_var(amSlot, 0), set_var(amVal, 1),
+                 set_var(amCashed, 0), set_var(amDown, 0)]
     st.script(
         when_bc(p, name),
         set_var(screen, num),
@@ -331,7 +353,8 @@ dig.script(
                            eq(screen, 4), gt(bjPhase, 0)),
                     all_of(eq(dField, 8), eq(screen, 4), gt(bjPhase, 0),
                            eq(didSplit, 1)),
-                    all_of(eq(dField, 9), eq(screen, 8)))),
+                    all_of(eq(dField, 9),
+                           any_of(eq(screen, 8), eq(screen, 9))))),
             [if_(eq(dField, 1), goto(add(-166, mul(15, sub(dSlot, 1))), 163)),
              if_(eq(dField, 2),
                  goto(add(-152, mul(14, sub(sub(dSlot, 1),
@@ -589,7 +612,9 @@ cash.script(
                     and_(eq(busy, 0), gt(stRow, 1))),
                and_(and_(eq(screen, 7), eq(roundOn, 1)),
                     and_(eq(busy, 0), gt(dkLane, 0))),
-               and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0))),
+               and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0)),
+               and_(and_(eq(screen, 9), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(amSlot, 0)))),
         [show()], [hide()])),
 )
 
@@ -623,6 +648,7 @@ cash.script(
 cash.script(when_clicked(), if_(eq(screen, 6), broadcast(p, "stairCash")))
 cash.script(when_clicked(), if_(eq(screen, 7), broadcast(p, "duckCash")))
 cash.script(when_clicked(), if_(eq(screen, 8), broadcast(p, "avCash")))
+cash.script(when_clicked(), if_(eq(screen, 9), broadcast(p, "amCash")))
 cash.script(
     when_clicked(),
     if_(and_(eq(screen, 3), and_(eq(roundOn, 1), gt(picks, 0))),
@@ -985,18 +1011,20 @@ menu = p.sprite("MenuTile")
 for nm, f in [("slots", "lt_slots"), ("plinko", "lt_plinko"),
               ("mines", "lt_mines"), ("bj", "lt_bj"),
               ("roul", "lt_roulette"), ("stairs", "lt_stairs"),
-              ("duck", "lt_duck"), ("crash", "lt_crash")]:
+              ("duck", "lt_duck"), ("crash", "lt_crash"),
+              ("avia", "lt_avia")]:
     C(menu, nm, f)
 menu.visible = False
 mIdx = menu.local_var("mIdx", 0)
 menu.script(when_flag(), hide(), set_var(mIdx, 0),
-            repeat(8, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
+            repeat(9, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
 menu.script(
     when_clone(),
     switch_costume_r(mIdx, "slots"),
-    if_else(not_(gt(mIdx, 4)),
-            [goto(add(-162, mul(108, sub(mIdx, 1))), 30)],
-            [goto(add(-162, mul(108, sub(mIdx, 5))), -60)]),
+    # nine tiles: five across the top, four centred beneath
+    if_else(not_(gt(mIdx, 5)),
+            [goto(add(-176, mul(88, sub(mIdx, 1))), 30)],
+            [goto(add(-132, mul(88, sub(mIdx, 6))), -58)]),
     forever(if_else(eq(screen, 0),
                     [show(),
                      if_else(touching_mouse(),
@@ -1015,7 +1043,8 @@ menu.script(
         if_(eq(mIdx, 5), broadcast(p, "openRoulette")),
         if_(eq(mIdx, 6), broadcast(p, "openStairs")),
         if_(eq(mIdx, 7), broadcast(p, "openDuck")),
-        if_(eq(mIdx, 8), broadcast(p, "openCrash"))),
+        if_(eq(mIdx, 8), broadcast(p, "openCrash")),
+        if_(eq(mIdx, 9), broadcast(p, "openAvia"))),
 )
 
 # ===================================================== chrome
@@ -1074,7 +1103,8 @@ for nm, file_pfx, count, var, xx, scr, guard in [
         ("BombsSel", "sel_bombs", 4, bombsIdx, -45, 3, "mines"),
         ("DiffSel", "sel_diff", 5, stDiff, -45, 6, "stairs"),
         ("DuckSel", "sel_duck", 4, dkMode, -45, 7, "duck"),
-        ("AvSel", "sel_auto", 5, avAuto, -45, 8, "avia")]:
+        ("AvSel", "sel_auto", 5, avAuto, -45, 8, "crash"),
+        ("AviaSel", "sel_auto", 5, amAuto, -45, 9, "avia")]:
     s = p.sprite(nm)
     for n in range(1, count + 1):
         C(s, f"c{n}", f"{file_pfx}{n}")
@@ -1083,7 +1113,9 @@ for nm, file_pfx, count, var, xx, scr, guard in [
           else (and_(eq(screen, 3), eq(roundOn, 0)) if guard == "mines"
                 else (and_(eq(screen, 6), eq(roundOn, 0)) if guard == "stairs"
                       else (and_(eq(screen, 7), eq(roundOn, 0)) if guard == "duck"
-                            else and_(eq(screen, 8), eq(roundOn, 0))))))
+                            else (and_(eq(screen, 8), eq(roundOn, 0))
+                                  if guard == "crash"
+                                  else and_(eq(screen, 9), eq(roundOn, 0)))))))
     s.script(when_flag(), goto(xx, -152))
     s.script(when_flag(),
              forever(switch_costume_r(var, "c1"),
@@ -1103,7 +1135,8 @@ for nm, file_pfx, count, var, xx, scr, guard in [
 act = p.sprite("ActionBtn")
 for nm, f in [("spin", "btn_spin"), ("drop", "btn_drop"),
               ("start", "btn_start"), ("deal", "btn_deal"),
-              ("go", "btn_go"), ("fly", "btn_launch")]:
+              ("go", "btn_go"), ("fly", "btn_launch"),
+              ("takeoff", "btn_takeoff")]:
     C(act, nm, f)
 act.visible = False
 act.script(
@@ -1125,6 +1158,8 @@ act.script(
                      show()),
                  # aviamasters: FLY launches, then CASH OUT is the only control
                  if_(eq(screen, 8), goto(52, -152), switch_costume("fly"),
+                     if_else(eq(roundOn, 0), [show()], [hide()])),
+                 if_(eq(screen, 9), goto(52, -152), switch_costume("takeoff"),
                      if_else(eq(roundOn, 0), [show()], [hide()]))])),
 )
 act.script(when_clicked(), if_(eq(busy, 0), SFX("click"),
@@ -1862,6 +1897,214 @@ avc.script(
              broadcast(p, "avReset")])),
 )
 
+
+
+# ===================================================== AVIAMASTERS
+# Fly from one carrier to the other collecting orbs: numbers add to the running
+# multiplier, x-orbs multiply it, rockets halve it without ending the round.
+# Land and you are paid; ditch and the stake is gone; bail out any time for
+# whatever the readout says.
+#
+# Both project rules hold. The orb and the ditch for each slot are rolled at
+# that slot and applied before anything animates, so no payout depends on where
+# a sprite happens to be; and src/tables5.py solves the per-slot ditch odds so
+# every cash-out point is worth exactly the house 0.96, which means there is no
+# stopping strategy to find. `busy` stays 0 for the whole flight, because
+# bailing out mid-animation is the point.
+AMSLOTS = T5["slots"]
+AMPREC = T5["prec"]
+AMCAP = T5["cap"]
+PLX, PLO, PHI = AV5.PLANE_X, AV5.PLANE_LO, AV5.PLANE_HI
+DECKY, CARL, CARR = AV5.DECK_Y, AV5.CARRIER_L, AV5.CARRIER_R
+
+amsky = p.sprite("AvSky")
+C(amsky, "sky", "avsky")
+amsky.x, amsky.y, amsky.visible = 0, 0, False
+amsky.script(when_flag(), goto(0, 0), go_layer("back"))
+amsky.script(when_flag(), vis([9], [go_layer("back")]))
+
+# --- orbs drifting across the sky. These are scenery: the route decides what
+# the plane actually collects, so what floats past tells the player nothing and
+# cannot be read for an edge. The one being collected is set to the real orb.
+orb = p.sprite("AvOrb")
+for n in range(1, len(T5["orbNames"]) + 1):
+    C(orb, f"o{n}", f"avorb{n}")
+orb.visible = False
+oIdx = orb.local_var("oIdx", 0)
+oX = orb.local_var("oX", 0)
+oY = orb.local_var("oY", 0)
+orb.script(when_flag(), hide(), set_var(oIdx, 0),
+           repeat(5, change_var(oIdx, 1), clone()), set_var(oIdx, 0))
+orb.script(
+    when_clone(),
+    set_var(oX, sub(mul(oIdx, 86), 180)),
+    set_var(oY, add(mul(oIdx, 23), sub(PLO, 30))),
+    forever(
+        if_else(eq(screen, 9),
+                [switch_costume_r(add(mod(add(oIdx, mathop("floor",
+                                                           div(oX, 53))), 4), 2),
+                                  "o2"),
+                 show(), set_effect("ghost", 30),
+                 change_var(oX, -1.6),
+                 if_(lt(oX, AV5.ORB_OUT),
+                     set_var(oX, AV5.ORB_IN),
+                     set_var(oY, add(PLO, rand(-24, 74)))),
+                 goto(oX, oY)],
+                [hide()])),
+)
+
+# --- the plane
+apl = p.sprite("AvPlane")
+for n in range(1, 4):
+    C(apl, f"p{n}", f"avplane{n}")
+apl.x, apl.y, apl.visible = CARL, DECKY + 6, False
+aProg = apl.local_var("aProg", 0)
+apl.script(when_flag(), goto(CARL, DECKY + 6), switch_costume("p1"))
+apl.script(when_flag(), vis([9]))
+apl.script(
+    when_bc(p, "amReset"),
+    if_(eq(screen, 9),
+        go_layer("front"), switch_costume("p1"), clear_effects(),
+        goto(CARL, DECKY + 6)),
+)
+apl.script(
+    when_bc(p, "amFly"),
+    if_(eq(screen, 9),
+        go_layer("front"), switch_costume("p2"),
+        # climb out over the first two orbs, then hold station while the sky
+        # moves past, then settle back down for the far deck
+        set_var(aProg, div(amSlot, AMSLOTS)),
+        if_else(lt(aProg, 0.18),
+                [gl(0.2, add(CARL, mul(sub(PLX, CARL), div(aProg, 0.18))),
+                    add(DECKY + 6, mul(sub(PLO, DECKY - 6), div(aProg, 0.18))))],
+                [if_else(gt(aProg, 0.86),
+                         [gl(0.2, add(PLX, mul(sub(CARR, PLX),
+                                               div(sub(aProg, 0.86), 0.14))),
+                             add(PLO, mul(sub(DECKY + 6, PLO),
+                                          div(sub(aProg, 0.86), 0.14))))],
+                         [gl(0.2, PLX, add(PLO, mul(sub(PHI, PLO), aProg)))])])),
+)
+apl.script(
+    when_bc(p, "amDitch"),
+    if_(eq(screen, 9),
+        switch_costume("p3"),
+        gl(0.5, add(xpos(), 30), AV5.SEA_Y - 6),
+        set_effect("ghost", 50)),
+)
+apl.script(
+    when_bc(p, "amLand"),
+    if_(eq(screen, 9),
+        switch_costume("p1"), gl(0.3, CARR, DECKY + 6)),
+)
+
+# --- the orb the plane just took, popped at the plane
+pick = p.sprite("AvPick")
+for n in range(1, len(T5["orbNames"]) + 1):
+    C(pick, f"o{n}", f"avorb{n}")
+pick.visible = False
+pick.script(when_flag(), hide())
+pick.script(
+    when_bc(p, "amCollect"),
+    if_(and_(eq(screen, 9), gt(amOrb, 1)),
+        switch_costume_r(amOrb, "o1"),
+        goto(add(PLX, 30), ypos()), go_layer("front"),
+        set_size(100), clear_effects(), show(),
+        repeat(7, change_x(-4), change_size(6), change_effect("ghost", 12)),
+        hide()),
+)
+pick.script(when_bc(p, "amReset"), hide())
+pick.script(when_bc(p, "screenChanged"), hide())
+pick.script(
+    when_bc(p, "amFly"),
+    if_(eq(screen, 9), goto(add(PLX, 30), add(PLO, mul(sub(PHI, PLO),
+                                                       div(amSlot, AMSLOTS))))),
+)
+
+# --- the round
+amc = p.sprite("AviaCtrl")
+C(amc, "blank", "msg_blank")
+amc.visible = False
+amc.script(when_flag(), hide())
+
+# Reading the multiplier and paying happen in one warped procedure, so a
+# cash-out cannot land between the two and pay against a figure the player
+# never saw. No waits in here - see PITFALLS on warp procedures that yield.
+am_cash = Proc(amc, "avia cash", [], warp=True)
+define(amc, am_cash,
+       if_(and_(eq(screen, 9), and_(eq(roundOn, 1), gt(amSlot, 0))),
+           set_var(amAt, amVal),
+           set_var(win, round_(mul(bet, amAt))),
+           change_var(chips, win),
+           set_var(amCashed, 1),
+           set_var(roundOn, 0), set_var(busy, 1)),
+       x=40, y=40)
+
+amc.script(when_bc(p, "amCash"), am_cash.call())
+amc.script(when_bc(p, "screenChanged"), broadcast(p, "amReset"))
+
+amc.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 9), and_(eq(roundOn, 0), eq(busy, 0))),
+        if_else(
+            lt(chips, bet),
+            [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+            [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+             set_var(amSlot, 0), set_var(amVal, 1), set_var(mult, 1),
+             set_var(amCashed, 0), set_var(amDown, 0), set_var(amAt, 0),
+             delete_all(amLog),
+             set_var(roundOn, 1),
+             broadcast(p, "amReset"), SFX("reel"),
+             repeat_until(
+                 eq(roundOn, 0),
+                 change_var(amSlot, 1),
+                 # the ditch for this slot, rolled before anything moves
+                 if_else(
+                     not_(gt(rand(1, AMPREC), item_of(amRamp, amSlot))),
+                     [set_var(amDown, 1), set_var(amVal, 0), set_var(mult, 0),
+                      set_var(roundOn, 0), set_var(busy, 1)],
+                     [# which orb this slot holds
+                      set_var(amRoll, rand(1, 100)),
+                      set_var(amOrb, 1),
+                      repeat_until(not_(gt(amRoll, item_of(amCum, amOrb))),
+                                   change_var(amOrb, 1)),
+                      set_var(amVal,
+                              div(round_(mul(add(mul(item_of(amA, amOrb), amVal),
+                                                 item_of(amB, amOrb)), 100)),
+                                  100)),
+                      if_(gt(amVal, AMCAP), set_var(amVal, AMCAP)),
+                      add_to(amLog, amOrb),
+                      set_var(mult, amVal),
+                      broadcast(p, "amFly"),
+                      broadcast(p, "amCollect"),
+                      if_(eq(item_of(amB, amOrb), 0),
+                          if_else(lt(item_of(amA, amOrb), 1),
+                                  [SFX("bomb")], [SFX("gem", 20)])),
+                      if_(gt(item_of(amB, amOrb), 0), SFX("chip")),
+                      # auto cash-out fires the instant the target is reached
+                      if_(and_(gt(amAuto, 1),
+                               not_(lt(amVal, item_of(avAutoVals, amAuto)))),
+                          am_cash.call()),
+                      # `roundOn` still 1 means nothing has paid yet. Without
+                      # that guard an auto cash-out on the LAST slot pays, and
+                      # then the landing below pays the same flight again.
+                      if_(and_(not_(lt(amSlot, AMSLOTS)), eq(roundOn, 1)),
+                          # made the far carrier: everything collected is paid
+                          set_var(amAt, amVal),
+                          set_var(win, round_(mul(bet, amAt))),
+                          change_var(chips, win),
+                          set_var(roundOn, 0), set_var(busy, 1),
+                          broadcast(p, "amLand")),
+                      wait(0.34)])),
+             if_(eq(screen, 9),
+                 if_else(eq(amDown, 1),
+                         [broadcast(p, "amDitch"), SFX("bomb"),
+                          wait(0.5), set_var(msgId, 3)],
+                         [set_var(msgId, 9), SFX("cash")]),
+                 wait(1.5), set_var(msgId, 1)),
+             set_var(mult, 1), set_var(amVal, 1), set_var(amSlot, 0),
+             set_var(busy, 0),
+             broadcast(p, "amReset")])),
+)
 
 out = str(BUILD / "ClubRoyale_fast.sb3") if FAST else str(DIST / "ClubRoyale.sb3")
 os.makedirs(os.path.dirname(out), exist_ok=True)

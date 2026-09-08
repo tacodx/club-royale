@@ -3,6 +3,53 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.9
+
+**Aviamasters, properly this time.** The ninth game, and the second attempt at
+this name — v3.7 admitted the first one was a crash curve wearing the label, and
+kept it as Crash. The real BGaming game is a collection game: a plane flies from
+one carrier to another, and the sky is full of orbs. Numbers add to the running
+multiplier, x-orbs multiply it, and rockets *halve* it without ending the round.
+Land and you are paid; ditch and the stake is gone; bail out any time for
+whatever the readout says.
+
+Every orb is an affine map, `v -> a*v + b`, so the value distribution after each
+slot walks out exactly. `src/tables5.py` solves the danger **per slot** from
+that: `alive_k = HOUSE / E[V_k]` is the survival needed to make crossing k orbs
+worth 0.96, and `d_k = 1 - alive_k/alive_(k-1)` the ditch odds that produce it.
+Two designs that do not work are recorded in the docstring — a flat ditch rate
+puts the optimal stopping point at slot 1 (and lands 0.03% of flights), and a
+rising ramp cannot fix it, because if the first slot is cheap the edge is
+already lost there. Solved per slot, every cash-out point is worth exactly the
+same, so there is no strategy to find. 21.1% of flights land; the cap is 250x.
+
+**The solver was rounding the wrong way.** Scratch's `round` block is JS
+`Math.round`, so halves go away from zero; Python's `round()` goes to even. That
+is reachable here — halving 1.25 gives exactly 0.625, so Python modelled 0.62
+where the game produces 0.63 — and it put the shipped ditch ramp 1/1000 out at
+three of the fourteen slots. `tests/play_avia.js` caught it on its first run by
+solving the table from the published constants instead of reading it back.
+
+**An auto cash-out on the final slot paid twice.** It fires inside the same
+loop iteration that lands the plane, so the cash-out paid and then the landing
+paid the same flight again. The landing branch is now guarded on `roundOn`.
+
+**A clean checkout could not build.** `ensure_tables()` never learned about
+`tables4` and `tables5`, so anything but an already-populated `build/` failed on
+a missing JSON. CI passed only because `make tables` ran first and the crash
+table happened to be committed. `make tables` now solves all five.
+
+**`tests/play_avia.js`** replays every flight rather than sampling it. The
+runtime logs the orb taken at each slot to `amLog`, so the harness can start at
+1x, apply each orb's map, round and clamp exactly as the game does, and demand
+the payout match to the penny — landings, manual cash-outs and auto cash-outs
+alike. Nothing in it is statistical except the draw frequencies, which are
+checked against the published weights. 23 assertions.
+
+**The lobby is five across the top and four beneath.** Nine tiles at 82x70.
+
+Boot clone count is 233 of 300, worst case 282 with roulette's chips down.
+
 ## v3.8
 
 **Roulette's wheel hid behind its own popup** — reported from play, and caused

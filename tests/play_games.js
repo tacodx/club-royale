@@ -62,7 +62,9 @@ async function bootSettle(vm, sleep, cap = 6000) {
   const act = sp('ActionBtn'), back = sp('BackBtn');
   const spot = i => cl('RSpot').find(t => Number(lv(t, 'sIdx')) === i);
 
-  check('boot: 8 lobby tiles', cl('MenuTile').length === 8, 'got ' + cl('MenuTile').length);
+  const games = sp('MenuTile').getCostumes().length;
+  check('boot: one lobby tile per game', cl('MenuTile').length === games,
+        `${cl('MenuTile').length} tiles, ${games} games`);
   check('boot: 49 roulette spots', cl('RSpot').length === 49, 'got ' + cl('RSpot').length);
   check('boot: 36 stair tiles', cl('StairTile').length === 36, 'got ' + cl('StairTile').length);
   check('boot: 9 stair mult labels', cl('StairMult').length === 9);

@@ -77,7 +77,9 @@ async function bootSettle(cap = 6000) {
   vm.start(); vm.greenFlag();
   await bootSettle();
 
-  check('boot: 8 lobby tiles', cl('MenuTile').length === 8, 'got ' + cl('MenuTile').length);
+  const games = sp('MenuTile').getCostumes().length;
+  check('boot: one lobby tile per game', cl('MenuTile').length === games,
+        `${cl('MenuTile').length} tiles, ${games} games`);
   check('boot: 6 drifting stars', cl('Spark').length === 6, 'got ' + cl('Spark').length);
   const big = cl('Digit').filter(t => Number(lv(t, 'dField')) === 9).length;
   // 8 slots: "9600.00x" is the widest the readout can ever get

@@ -50,20 +50,26 @@ them. When a change touches what is shown, assert on what is rendered
 (`tests/play_blackjack.js` reconstructs the digit sprites and compares) and run
 `make mocks`.
 
-**Watch the clone budget.** Scratch caps clones at 300. Currently 224 clones are
+**Watch the clone budget.** Scratch caps clones at 300. Currently 233 clones are
 alive at boot, and roulette adds up to 49 chips on top, so the real worst case
-is 273 — under 30 spare. `src/build.py` prints nothing about this, so count before adding a
-clone-heavy feature: `tests/play_blackjack.js` and `tests/play_duck.js` both
-assert `< 300`.
+is 282 — under 20 spare. `src/build.py` prints nothing about this, so count before adding a
+clone-heavy feature: `tests/play_blackjack.js`, `tests/play_duck.js` and
+`tests/play_avia.js` all assert `< 300`.
 
-**End a round atomically.** Aviamasters set `roundOn = 0` when the flight ended
-and raised `busy` a beat later, leaving one frame where FLY was visible again
-while settlement was still pending — a click in that frame started a second
-round on top of the first. Whatever ends a round must clear `roundOn` and raise
-`busy` in the same non-yielding step.
+**End a round atomically.** Crash (then called Aviamasters) set `roundOn = 0`
+when the flight ended and raised `busy` a beat later, leaving one frame where
+FLY was visible again while settlement was still pending — a click in that
+frame started a second round on top of the first. Whatever ends a round must
+clear `roundOn` and raise `busy` in the same non-yielding step.
 
-**Payout tables are solved, not hand-written.** `src/tables.py`,
-`src/tables2.py` and `src/tables3.py` compute every multiplier to a target house
+**Only one thing may pay a round.** Aviamasters pays on landing *and* on
+cash-out, and its auto cash-out fires inside the same loop that lands the
+plane — so an auto target reached on the final slot paid twice. The landing
+branch is guarded on `roundOn` still being 1. Any second payout path needs the
+same guard.
+
+**Payout tables are solved, not hand-written.** `src/tables.py` through
+`src/tables5.py` compute every multiplier to a target house
 edge and assert the result. Change the target there; never edit a multiplier by
 hand. The assertions run against the *rounded* values that ship, not the exact
 ones, so what a player is paid is what was verified.
@@ -73,6 +79,13 @@ plays the traffic to match. If a collision decided the payout instead,
 correctness would depend on frame timing and could not be proven on the fast
 build - which is the guarantee the whole suite rests on. Real crash games work
 this way too.
+
+**Round the way Scratch rounds, not the way Python does.** Scratch's `round`
+block is JS `Math.round` — halves go away from zero. Python's `round()` goes to
+even. Anywhere a solver models a value the *runtime* computes, the two must
+agree: halving 1.25 gives exactly 0.625, and Python says 0.62 where the game
+says 0.63. That put the Aviamasters ditch ramp 1/1000 out at three slots.
+`src/tables5.py` has an `r2()` that matches the VM.
 
 **A digit field can only render as many characters as it has clones.** Each
 clone draws one character *by index*, so a string longer than the field simply
@@ -100,12 +113,15 @@ src/
   assets_v3.py   duck road: road panel, duck, traffic, lane ladder, egg
                  (owns the lane geometry build.py positions sprites from)
   assets_v4.py   crash: night sky, launch gantry, rocket, burst
-                 (likewise owns the flight-path geometry)
+                 (likewise owns the flight-path geometry, and the shared
+                 big-multiplier readout position used by crash and aviamasters)
+  assets_v5.py   aviamasters: dusk sky, two carriers, biplane, collectible orbs
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
   tables3.py     duck road (4 modes) solver, base + golden-egg ladders
   tables4.py     crash distribution + climb constants
+  tables5.py     aviamasters orb mix + the per-slot ditch ramp
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
@@ -116,6 +132,7 @@ tests/
   play_core.js        slots, plinko (9 tables), mines (4 tables), navigation
   play_duck.js        duck road: table vs an independent solve, every hop
   play_crash.js       crash: failure point, climb, cash-out, auto
+  play_avia.js        aviamasters: replays every flight from its orb log
 tools/
   mock.py        composite every screen at exact sprite coordinates
 ```
@@ -132,6 +149,7 @@ tools/
 | Stairs | 96% RTP | 9 rows, 5 modes from 4-tile/1-bomb to 4-tile/3-bomb |
 | Duck Road | 96% RTP | 12 lanes, 4 modes; 25% of runs hide a 3x golden egg |
 | Crash | 96% RTP | rocket climb; failure point drawn at launch, up to 9600x, auto cash-out |
+| Aviamasters | 96% RTP | 14 orbs on the route; rockets halve, cap 250x; every cash-out point worth the same |
 
 ## Known limitations
 

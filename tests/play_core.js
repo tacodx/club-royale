@@ -63,7 +63,8 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('boot: chips 1000', Number(gv('chips')) === 1000);
   check('boot: bet 50', Number(gv('bet')) === 50);
   check('boot: clone counts',
-    cl('MenuTile').length === 8 && cl('Reel').length === 3 &&
+    cl('MenuTile').length === sp('MenuTile').getCostumes().length &&
+    cl('Reel').length === 3 &&
     cl('MineTile').length === 25 && cl('Card').length === 18 &&
     cl('Digit').length === 40 && cl('Bucket').length === 17,
     `menu ${cl('MenuTile').length} reel ${cl('Reel').length} mine ${cl('MineTile').length} card ${cl('Card').length} digit ${cl('Digit').length} bucket ${cl('Bucket').length}`);
