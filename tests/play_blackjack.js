@@ -50,16 +50,33 @@ function expectedReturn(s) {
   return ret;
 }
 
+// Clone spawn loops in `when flag clicked` run one clone per frame (PITFALLS 5),
+// so the full set is not present for the better part of a second. Wait for the
+// count to stop growing rather than guessing a sleep - a fixed 600ms silently
+// under-counted once Duck Road added per-frame work.
+async function bootSettle(vm, sleep, cap = 6000) {
+  const total = () => vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
+  let last = -1, stable = 0, waited = 0;
+  while (waited < cap) {
+    await sleep(50); waited += 50;
+    const n = total();
+    stable = (n === last && n > 0) ? stable + 1 : 0;
+    last = n;
+    if (stable >= 3) return n;
+  }
+  return last;
+}
+
 (async () => {
   await vm.loadProject(fs.readFileSync(process.argv[2]));
   vm.start(); vm.greenFlag();
-  await sleep(600);
+  await bootSettle(vm, sleep);
 
   const tile = n => cl('MenuTile').find(t => Number(lv(t, 'mIdx')) === n);
   const act = sp('ActionBtn');
 
   check('boot: 18 card clones', cl('Card').length === 18, 'got ' + cl('Card').length);
-  check('boot: 32 digit clones', cl('Digit').length === 32, 'got ' + cl('Digit').length);
+  check('boot: 40 digit clones', cl('Digit').length === 40, 'got ' + cl('Digit').length);
   check('boot: sounds attached',
     vm.runtime.targets.reduce((a, t) => a + t.getSounds().length, 0) === 12);
   check('boot: clone budget', vm.runtime.targets.length < 300, vm.runtime.targets.length);

@@ -131,6 +131,18 @@ def digits():
     blank = new(w, h)
     ImageDraw.Draw(blank).point((0, 0), fill=(0, 0, 0, 1))
     save(blank, f"d{len(DIGIT_CHARS) + 1}")
+    # a multiplier "x", appended after the blank so every existing costume
+    # index keeps its meaning
+    # multiplier "x" and the million / billion suffixes, appended after the
+    # blank so every existing costume index keeps its meaning
+    for off, ch, size in [(2, "x", 15), (3, "M", 16), (4, "B", 16)]:
+        img = new(w, h)
+        lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ImageDraw.Draw(lay).text((img.size[0] / 2, img.size[1] / 2 - SC), ch,
+                                 font=font(size * SC), anchor="mm",
+                                 fill=(255, 255, 255, 255))
+        img.alpha_composite(gold_fill(lay))
+        save(img, f"d{len(DIGIT_CHARS) + off}")
 
 
 # ---------------------------------------------------------- lobby tiles

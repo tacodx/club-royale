@@ -4,16 +4,25 @@ from sb3 import Project
 from blocks import *
 import assets_v11 as AV
 import assets_v2 as AV2
+import assets_v3 as AV3
+import assets_v4 as AV4
+import assets_v5 as AV5
 import json
 import sfx as SFXMOD
 
 A = AV.OUT
 AV.build()
 AV2.build()
+AV3.build()
+AV4.build()
+AV5.build()
 SFXMOD.build()
 T = AV.T
 from paths import BUILD, SFX_DIR, DIST
 T2 = json.load(open(BUILD / "tables2.json"))
+T3 = json.load(open(BUILD / "tables3.json"))
+T4 = json.load(open(BUILD / "tables4.json"))
+T5 = json.load(open(BUILD / "tables5.json"))
 
 FAST = os.environ.get("FAST") == "1"
 _rw = wait
@@ -21,6 +30,11 @@ _rw = wait
 
 def wait(s):                       # noqa: F811
     return _rw(0.01 if FAST else s)
+
+
+def gl(secs, x, y):
+    """glide(), shortened under FAST like wait() is. Animation only."""
+    return glide(0.01 if FAST else secs, x, y)
 
 
 BET = AV.BET_LEVELS
@@ -93,6 +107,29 @@ didSplit= p.var("didSplit", 0)
 bjPhase = p.var("bjPhase", 0)
 canDbl  = p.var("canDbl", 0)
 canSpl  = p.var("canSpl", 0)
+chipsTxt= p.var("chipsTxt", "1000")   # formatted bankroll, <= 7 chars
+cTmp    = p.var("cTmp", 0)        # scratch for the formatter only
+amSlot  = p.var("amSlot", 0)      # orbs crossed so far
+amVal   = p.var("amVal", 1)       # running multiplier
+amOrb   = p.var("amOrb", 1)       # orb drawn for this slot
+amRoll  = p.var("amRoll", 0)      # the draw that chose it
+amAuto  = p.var("amAuto", 1)      # auto cash-out slot, 1 = OFF
+amAt    = p.var("amAt", 0)        # multiplier captured on cash-out
+amCashed= p.var("amCashed", 0)
+amDown  = p.var("amDown", 0)      # 1 once it has ditched
+avU     = p.var("avU", 0)         # the raw landing draw
+avLand  = p.var("avLand", 0)      # multiplier the plane ditches at
+avTick  = p.var("avTick", 0)      # climb counter
+avAuto  = p.var("avAuto", 1)      # auto cash-out slot, 1 = OFF
+avAt    = p.var("avAt", 0)        # multiplier captured on cash-out
+avCashed= p.var("avCashed", 0)
+dkMode  = p.var("dkMode", 1)      # 1..4 difficulty
+dkLane  = p.var("dkLane", 0)      # lanes crossed so far
+dkEgg   = p.var("dkEgg", 0)       # lane hiding the egg, 0 = none
+dkGot   = p.var("dkGot", 0)       # egg collected this run
+dkTgt   = p.var("dkTgt", 0)       # lane being attempted
+dkRoll  = p.var("dkRoll", 0)      # the roll that decided it
+dkHit   = p.var("dkHit", 0)       # lane the duck was hit in
 bjA     = p.var("bjA", 0)
 bjB     = p.var("bjB", 0)
 
@@ -125,8 +162,25 @@ diffBombs = p.lst("diffBombs", [str(d[2]) for d in T2["diffs"]])
 stairMults= p.lst("stairMults",
                   [f"{v:g}" for d in T2["diffs"] for v in T2["stairs"][d[0]]])
 
+duckMults = p.lst("duckMults", T3["flat"])   # 96: base 1-48, egg 49-96
+duckPct   = p.lst("duckPct", [str(v) for v in T3["pct"]])
+duckX     = p.lst("duckX", [str(v) for v in AV3.LANE_X])
+avAutoVals = p.lst("avAutoVals", [f"{v:g}" for v in T4["auto"]])
+# aviamasters: per-slot ditch odds in thousandths, and the orbs as
+# cumulative weights plus the affine pair (a, b) each one applies
+amRamp = p.lst("amRamp", [str(v) for v in T5["ditchRamp"]])
+amCum  = p.lst("amCum", [str(v) for v in T5["orbCum"]])
+amA    = p.lst("amA", [f"{v:g}" for v in T5["orbA"]])
+amB    = p.lst("amB", [f"{v:g}" for v in T5["orbB"]])
+amLog  = p.lst("amLog", [])   # orbs taken this round, for the harness
+# index into this list == the Digit costume number, so a glyph is one lookup
+digitChars = p.lst("digitChars",
+                   [str(d) for d in range(10)] + [".", ",", "", "x", "M", "B"])
+
 SCREENS = {"lobby": 0, "openSlots": 1, "openPlinko": 2, "openMines": 3,
-           "openBJ": 4, "openRoulette": 5, "openStairs": 6}
+           "openBJ": 4, "openRoulette": 5, "openStairs": 6,
+           "openDuck": 7, "openCrash": 8,
+           "openAvia": 9}
 
 # convenience reporters
 ROWS = lambda: item_of(rowCounts, rowsIdx)
@@ -171,6 +225,12 @@ for name, num in SCREENS.items():
     extra = []
     if num == 2:
         extra = [set_var(ballsUp, 0), broadcast(p, "refreshPlinko")]
+    if num == 8:
+        extra = [set_var(mult, 1), set_var(avTick, 0), set_var(avCashed, 0),
+                 set_var(avLand, 0)]
+    if num == 9:
+        extra = [set_var(mult, 1), set_var(amSlot, 0), set_var(amVal, 1),
+                 set_var(amCashed, 0), set_var(amDown, 0)]
     st.script(
         when_bc(p, name),
         set_var(screen, num),
@@ -178,10 +238,38 @@ for name, num in SCREENS.items():
         set_var(mult, 0), set_var(picks, 0), set_var(hole, 0),
         delete_all(pHand), delete_all(dHand),
         set_var(stRow, 1), set_var(bjPhase, 0), set_var(didSplit, 0),
+        set_var(dkLane, 0), set_var(dkEgg, 0), set_var(dkGot, 0),
+        set_var(dkHit, 0),
         delete_all(pHand2),
         extra,
         broadcast(p, "screenChanged"),
     )
+
+st.script(
+    when_flag(),
+    forever(
+        if_else(
+            lt(chips, 1000),
+            [set_var(chipsTxt, chips)],
+            [if_else(
+                lt(chips, 1000000),
+                # n,nnn - pad the remainder so 1,050 does not render as 1,50
+                [set_var(cTmp, mod(chips, 1000)),
+                 if_else(lt(cTmp, 10),
+                         [set_var(cTmp, join("00", cTmp))],
+                         [if_(lt(cTmp, 100), set_var(cTmp, join("0", cTmp)))]),
+                 set_var(chipsTxt,
+                         join(join(mathop("floor", div(chips, 1000)), ","),
+                              cTmp))],
+                [if_else(
+                    lt(chips, 1000000000),
+                    [set_var(chipsTxt,
+                             join(div(round_(div(chips, 10000)), 100), "M"))],
+                    [set_var(chipsTxt,
+                             join(div(round_(div(chips, 10000000)), 100),
+                                  "B"))])])]),
+    ),
+)
 
 st.script(
     when_flag(),
@@ -205,7 +293,7 @@ def vis(screens, extra=None):
 
 # ===================================================== digits
 dig = p.sprite("Digit")
-for n in range(1, 14):
+for n in range(1, 17):
     C(dig, f"d{n}", f"d{n}")
 dig.visible = False
 dSlot = dig.local_var("dSlot", 0)
@@ -231,13 +319,16 @@ dig.script(
     repeat(2, change_var(dSlot, 1), clone()),
     set_var(dField, 8), set_var(dSlot, 0),
     repeat(2, change_var(dSlot, 1), clone()),
+    set_var(dField, 9), set_var(dSlot, 0),
+    repeat(8, change_var(dSlot, 1), clone()),
     set_var(dField, 0), set_var(dSlot, 0),
 )
 dig.script(
     when_clone(),
     go_layer("front"),
+    if_(eq(dField, 9), set_size(170)),      # the crash readout is the headline
     forever(
-        if_(eq(dField, 1), set_var(dTxt, chips)),
+        if_(eq(dField, 1), set_var(dTxt, chipsTxt)),
         if_(eq(dField, 2), set_var(dTxt, bet)),
         if_(eq(dField, 3), set_var(dTxt, mult)),
         if_(eq(dField, 4), set_var(dTxt, rNum)),
@@ -245,6 +336,7 @@ dig.script(
         if_(eq(dField, 6), set_var(dTxt, dealer)),
         if_(eq(dField, 7), set_var(dTxt, you)),
         if_(eq(dField, 8), set_var(dTxt, you2)),
+        if_(eq(dField, 9), set_var(dTxt, join(mult, "x"))),
         set_var(dLen, length_of(dTxt)),
         if_else(
             all_of(
@@ -252,13 +344,17 @@ dig.script(
                 any_of(
                     eq(dField, 1),
                     all_of(eq(dField, 2), gt(screen, 0), eq(roundOn, 0)),
-                    all_of(eq(dField, 3), any_of(eq(screen, 3), eq(screen, 6))),
+                    all_of(eq(dField, 3),
+                           any_of(eq(screen, 3), eq(screen, 6),
+                                  eq(screen, 7))),
                     all_of(eq(dField, 4), eq(screen, 5), eq(busy, 1)),
                     all_of(eq(dField, 5), eq(screen, 5)),
                     all_of(any_of(eq(dField, 6), eq(dField, 7)),
                            eq(screen, 4), gt(bjPhase, 0)),
                     all_of(eq(dField, 8), eq(screen, 4), gt(bjPhase, 0),
-                           eq(didSplit, 1)))),
+                           eq(didSplit, 1)),
+                    all_of(eq(dField, 9),
+                           any_of(eq(screen, 8), eq(screen, 9))))),
             [if_(eq(dField, 1), goto(add(-166, mul(15, sub(dSlot, 1))), 163)),
              if_(eq(dField, 2),
                  goto(add(-152, mul(14, sub(sub(dSlot, 1),
@@ -280,11 +376,14 @@ dig.script(
              if_(eq(dField, 8),
                  goto(add(-168, mul(16, sub(sub(dSlot, 1),
                                             div(sub(dLen, 1), 2)))), -66)),
+             if_(eq(dField, 9),
+                 goto(add(AV4.MULT_XY[0],
+                          mul(AV4.MULT_GAP, sub(sub(dSlot, 1),
+                                                div(sub(dLen, 1), 2)))),
+                      AV4.MULT_XY[1])),
              set_var(tmp2, letter_of(dSlot, dTxt)),
-             if_else(eq(tmp2, "."), [switch_costume("d11")],
-                     [if_else(eq(tmp2, ","), [switch_costume("d12")],
-                              [switch_costume_r(add(tmp2, 1), "d1")])]),
-             show()],
+             switch_costume_r(item_num_of(digitChars, tmp2), "d1"),
+             go_layer("front"), show()],
             [hide()])),
 )
 
@@ -292,7 +391,7 @@ mplq = p.sprite("MultPlaque")
 C(mplq, "plq", "plq_mult")
 mplq.x, mplq.y, mplq.visible = 0, 163, False
 mplq.script(when_flag(), goto(0, 163))
-mplq.script(when_flag(), vis([3, 6]))
+mplq.script(when_flag(), vis([3, 6, 7]))
 
 splq = p.sprite("StakePlaque")
 C(splq, "plq", "plq_stake")
@@ -507,10 +606,15 @@ cash.script(when_flag(), goto(158, -152))
 cash.script(
     when_flag(),
     forever(if_else(
-        or_(and_(and_(eq(screen, 3), eq(roundOn, 1)),
-                 and_(eq(busy, 0), gt(picks, 0))),
-            and_(and_(eq(screen, 6), eq(roundOn, 1)),
-                 and_(eq(busy, 0), gt(stRow, 1)))),
+        any_of(and_(and_(eq(screen, 3), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(picks, 0))),
+               and_(and_(eq(screen, 6), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(stRow, 1))),
+               and_(and_(eq(screen, 7), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(dkLane, 0))),
+               and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0)),
+               and_(and_(eq(screen, 9), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(amSlot, 0)))),
         [show()], [hide()])),
 )
 
@@ -542,6 +646,9 @@ cash.script(
                  reset_board.call(), set_var(roundOn, 1)])),
 )
 cash.script(when_clicked(), if_(eq(screen, 6), broadcast(p, "stairCash")))
+cash.script(when_clicked(), if_(eq(screen, 7), broadcast(p, "duckCash")))
+cash.script(when_clicked(), if_(eq(screen, 8), broadcast(p, "avCash")))
+cash.script(when_clicked(), if_(eq(screen, 9), broadcast(p, "amCash")))
 cash.script(
     when_clicked(),
     if_(and_(eq(screen, 3), and_(eq(roundOn, 1), gt(picks, 0))),
@@ -903,17 +1010,21 @@ title.script(when_flag(), vis([0]))
 menu = p.sprite("MenuTile")
 for nm, f in [("slots", "lt_slots"), ("plinko", "lt_plinko"),
               ("mines", "lt_mines"), ("bj", "lt_bj"),
-              ("roul", "lt_roulette"), ("stairs", "lt_stairs")]:
+              ("roul", "lt_roulette"), ("stairs", "lt_stairs"),
+              ("duck", "lt_duck"), ("crash", "lt_crash"),
+              ("avia", "lt_avia")]:
     C(menu, nm, f)
 menu.visible = False
 mIdx = menu.local_var("mIdx", 0)
 menu.script(when_flag(), hide(), set_var(mIdx, 0),
-            repeat(6, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
+            repeat(9, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
 menu.script(
     when_clone(),
     switch_costume_r(mIdx, "slots"),
-    goto(add(-140, mul(140, mod(sub(mIdx, 1), 3))),
-         sub(24, mul(96, mathop("floor", div(sub(mIdx, 1), 3))))),
+    # nine tiles: five across the top, four centred beneath
+    if_else(not_(gt(mIdx, 5)),
+            [goto(add(-176, mul(88, sub(mIdx, 1))), 30)],
+            [goto(add(-132, mul(88, sub(mIdx, 6))), -58)]),
     forever(if_else(eq(screen, 0),
                     [show(),
                      if_else(touching_mouse(),
@@ -930,7 +1041,10 @@ menu.script(
         if_(eq(mIdx, 3), broadcast(p, "openMines")),
         if_(eq(mIdx, 4), broadcast(p, "openBJ")),
         if_(eq(mIdx, 5), broadcast(p, "openRoulette")),
-        if_(eq(mIdx, 6), broadcast(p, "openStairs"))),
+        if_(eq(mIdx, 6), broadcast(p, "openStairs")),
+        if_(eq(mIdx, 7), broadcast(p, "openDuck")),
+        if_(eq(mIdx, 8), broadcast(p, "openCrash")),
+        if_(eq(mIdx, 9), broadcast(p, "openAvia"))),
 )
 
 # ===================================================== chrome
@@ -987,14 +1101,21 @@ for nm, file_pfx, count, var, xx, scr, guard in [
         ("RowsSel", "sel_rows", 3, rowsIdx, -40, 2, "plinko"),
         ("RiskSel", "sel_risk", 3, riskIdx, 24, 2, "plinko"),
         ("BombsSel", "sel_bombs", 4, bombsIdx, -45, 3, "mines"),
-        ("DiffSel", "sel_diff", 5, stDiff, -45, 6, "stairs")]:
+        ("DiffSel", "sel_diff", 5, stDiff, -45, 6, "stairs"),
+        ("DuckSel", "sel_duck", 4, dkMode, -45, 7, "duck"),
+        ("AvSel", "sel_auto", 5, avAuto, -45, 8, "crash"),
+        ("AviaSel", "sel_auto", 5, amAuto, -45, 9, "avia")]:
     s = p.sprite(nm)
     for n in range(1, count + 1):
         C(s, f"c{n}", f"{file_pfx}{n}")
     s.x, s.y, s.visible = xx, -152, False
     ok = (and_(eq(screen, 2), eq(ballsUp, 0)) if guard == "plinko"
           else (and_(eq(screen, 3), eq(roundOn, 0)) if guard == "mines"
-                else and_(eq(screen, 6), eq(roundOn, 0))))
+                else (and_(eq(screen, 6), eq(roundOn, 0)) if guard == "stairs"
+                      else (and_(eq(screen, 7), eq(roundOn, 0)) if guard == "duck"
+                            else (and_(eq(screen, 8), eq(roundOn, 0))
+                                  if guard == "crash"
+                                  else and_(eq(screen, 9), eq(roundOn, 0)))))))
     s.script(when_flag(), goto(xx, -152))
     s.script(when_flag(),
              forever(switch_costume_r(var, "c1"),
@@ -1006,12 +1127,16 @@ for nm, file_pfx, count, var, xx, scr, guard in [
             change_var(var, 1),
             if_(gt(var, count), set_var(var, 1)),
             broadcast(p, "refreshPlinko") if guard == "plinko"
-            else (broadcast(p, "stairRefresh") if guard == "stairs" else None)),
+            else (broadcast(p, "stairRefresh") if guard == "stairs"
+                  else (broadcast(p, "duckRefresh") if guard == "duck"
+                        else None))),
     )
 
 act = p.sprite("ActionBtn")
 for nm, f in [("spin", "btn_spin"), ("drop", "btn_drop"),
-              ("start", "btn_start"), ("deal", "btn_deal")]:
+              ("start", "btn_start"), ("deal", "btn_deal"),
+              ("go", "btn_go"), ("fly", "btn_launch"),
+              ("takeoff", "btn_takeoff")]:
     C(act, nm, f)
 act.visible = False
 act.script(
@@ -1027,6 +1152,14 @@ act.script(
                  if_(eq(screen, 5), goto(110, -152), switch_costume("spin"),
                      show()),
                  if_(eq(screen, 6), goto(52, -152), switch_costume("start"),
+                     if_else(eq(roundOn, 0), [show()], [hide()])),
+                 # duck road: GO both starts the run and takes the next lane
+                 if_(eq(screen, 7), goto(52, -152), switch_costume("go"),
+                     show()),
+                 # aviamasters: FLY launches, then CASH OUT is the only control
+                 if_(eq(screen, 8), goto(52, -152), switch_costume("fly"),
+                     if_else(eq(roundOn, 0), [show()], [hide()])),
+                 if_(eq(screen, 9), goto(52, -152), switch_costume("takeoff"),
                      if_else(eq(roundOn, 0), [show()], [hide()]))])),
 )
 act.script(when_clicked(), if_(eq(busy, 0), SFX("click"),
@@ -1126,7 +1259,10 @@ wptr = p.sprite("Pointer")
 C(wptr, "p", "pointer")
 wptr.x, wptr.y, wptr.visible = 0, 133, False
 wptr.script(when_flag(), goto(0, 133), hide())
-wptr.script(when_bc(p, "rSpin"), go_layer("front"), show())
+wptr.script(when_bc(p, "rSpin"), show(),
+            # re-front for the length of the spin, so the popup
+            # cannot land on top of it (same race as the wheel)
+            repeat(56, go_layer("front"), wait(0.02)))
 wptr.script(when_bc(p, "rSpinEnd"), hide())
 wptr.script(when_bc(p, "screenChanged"), hide())
 
@@ -1150,8 +1286,10 @@ wheel.script(
            change_var(wStp, 1),
            set_var(wU, sub(1, div(wStp, 52))),
            if_(eq(mod(wStp, 6), 0), SFX("tick")),
+           go_layer("front"),
            point_dir(sub(90, mul(wTgt, sub(1, mul(wU, mul(wU, wU))))))),
     point_dir(sub(90, mul(sub(item_num_of(wheelOrd, rNum), 1), div(360, 37)))),
+    go_layer("front"),
 )
 
 rctl = p.sprite("RouletteCtrl")
@@ -1390,6 +1528,582 @@ sctl.script(
         broadcast(p, "stairRefresh"),
         wait(1.6), set_var(msgId, 1), set_var(busy, 0),
         broadcast(p, "stairRefresh")),
+)
+
+
+# ===================================================== DUCK ROAD
+# The duck crosses one lane at a time. Every hop is decided by a single roll
+# against duckPct before anything animates; the traffic is presentation, so
+# payout correctness never depends on timing and holds on the fast build.
+LANEX, KERBX = AV3.LANE_X, AV3.KERB_X
+DUCKY, LABELY = AV3.DUCK_Y, AV3.LABEL_Y
+CARTOP, CARBOT = 88, -88        # inside the road, clear of the labels
+
+road = p.sprite("RoadPanel")
+C(road, "road", "duckroad")
+road.x, road.y, road.visible = 0, 0, False
+road.script(when_flag(), goto(0, 0), go_layer("back"))
+road.script(when_flag(), vis([7], [go_layer("back")]))
+
+# --- multiplier ladder, one label above each lane
+dmul = p.sprite("DuckMult")
+for n in range(1, 97):
+    C(dmul, f"m{n}", f"dm{n}")
+dmul.visible = False
+dLane = dmul.local_var("dLane", 0)
+dmul.script(when_flag(), hide(), set_var(dLane, 0),
+            repeat(12, change_var(dLane, 1), clone()), set_var(dLane, 0))
+dmul.script(when_clone(), goto(item_of(duckX, dLane), LABELY), hide())
+dmul.script(
+    when_bc(p, "duckRefresh"),
+    if_(gt(dLane, 0),
+        if_else(eq(screen, 7),
+                [switch_costume_r(add(add(mul(sub(dkMode, 1), 12), dLane),
+                                      mul(dkGot, 48)), "m1"),
+                 if_else(and_(eq(roundOn, 1), eq(dLane, dkLane)),
+                         [clear_effects()], [set_effect("ghost", 55)]),
+                 show()],
+                [hide()])),
+)
+
+# --- the duck
+duck = p.sprite("Duck")
+for n in range(1, 5):
+    C(duck, f"d{n}", f"duck{n}")
+duck.x, duck.y, duck.visible = KERBX, DUCKY, False
+duck.script(when_flag(), goto(KERBX, DUCKY), switch_costume("d1"))
+duck.script(when_flag(), vis([7]))
+duck.script(
+    when_bc(p, "duckRefresh"),
+    if_(eq(screen, 7),
+        switch_costume("d1"), go_layer("front"),
+        if_else(gt(dkLane, 0),
+                [goto(item_of(duckX, dkLane), DUCKY)],
+                [goto(KERBX, DUCKY)])),
+)
+duck.script(
+    when_bc(p, "duckHop"),
+    if_(eq(screen, 7),
+        go_layer("front"), switch_costume("d2"),
+        gl(0.26, item_of(duckX, dkTgt), add(DUCKY, 9)),
+        goto(item_of(duckX, dkTgt), DUCKY), switch_costume("d1")),
+)
+duck.script(when_bc(p, "duckDie"), if_(eq(screen, 7), switch_costume("d3")))
+duck.script(when_bc(p, "duckWin"), if_(eq(screen, 7), switch_costume("d4")))
+
+# --- the golden egg, carried once found
+degg = p.sprite("DuckEgg")
+C(degg, "egg", "degg")
+degg.visible = False
+degg.script(when_flag(), hide())
+degg.script(
+    when_bc(p, "duckRefresh"),
+    if_else(and_(eq(screen, 7), eq(dkGot, 1)),
+            [go_layer("front"),
+             if_else(gt(dkLane, 0),
+                     [goto(item_of(duckX, dkLane), add(DUCKY, 24))],
+                     [goto(KERBX, add(DUCKY, 24))]),
+             show()],
+            [hide()]),
+)
+
+# --- traffic. The original sprite is the car that actually hits the duck;
+# the clones are ambient traffic, dimmed and shrunk so the two never read as
+# the same thing (PITFALLS 1: clones hear every broadcast, so gate on cIdx).
+car = p.sprite("DuckCar")
+for n in range(1, 4):
+    C(car, f"c{n}", f"dcar{n}")
+car.visible = False
+cIdx = car.local_var("cIdx", 0)
+cLane = car.local_var("cLane", 0)
+car.script(when_flag(), hide(), set_var(cIdx, 0),
+           repeat(4, change_var(cIdx, 1), clone()), set_var(cIdx, 0))
+car.script(
+    when_clone(),
+    hide(), set_size(84), set_effect("ghost", 42),
+    forever(
+        if_else(eq(screen, 7),
+                [set_var(cLane, rand(1, 12)),
+                 # never drive through the lane the duck is standing in or
+                 # hopping into - the strike car owns that moment
+                 if_(not_(or_(eq(cLane, dkLane),
+                              and_(eq(roundOn, 1), eq(cLane, dkTgt)))),
+                     switch_costume_r(rand(1, 3), "c1"),
+                     goto(item_of(duckX, cLane), CARTOP),
+                     show(),
+                     gl(1.15, item_of(duckX, cLane), CARBOT),
+                     hide()),
+                 wait(rand(0.25, 1.1))],
+                [hide(), wait(0.2)])),
+)
+car.script(
+    when_bc(p, "duckStrike"),
+    if_(eq(cIdx, 0),
+        set_size(100), clear_effects(),
+        switch_costume_r(rand(1, 3), "c1"),
+        goto(item_of(duckX, dkHit), CARTOP),
+        go_layer("front"), show(),
+        gl(0.26, item_of(duckX, dkHit), DUCKY),
+        gl(0.30, item_of(duckX, dkHit), CARBOT),
+        hide()),
+)
+car.script(when_bc(p, "screenChanged"),
+           if_(not_(eq(screen, 7)), hide()))
+
+# --- the round
+dctl = p.sprite("DuckCtrl")
+C(dctl, "blank", "msg_blank")
+dctl.visible = False
+dctl.script(when_flag(), hide())
+dctl.script(when_bc(p, "screenChanged"), broadcast(p, "duckRefresh"))
+
+# NOT warped: this procedure waits and glides. A warp procedure that yields
+# makes scratch-vm re-run the yielding block instead of yielding, burning the
+# whole 500ms warp budget per wait and starving every other script.
+hop = Proc(dctl, "duck hop", [], warp=False)
+define(
+    dctl, hop,
+    set_var(busy, 1),
+    set_var(dkTgt, add(dkLane, 1)),
+    # the outcome is settled here, before a single pixel moves
+    set_var(dkRoll, rand(1, 100)),
+    broadcast(p, "duckHop"),
+    wait(0.3),
+    if_else(
+        not_(gt(dkRoll, item_of(duckPct, dkMode))),
+        [set_var(dkLane, dkTgt),
+         if_(and_(eq(dkEgg, dkLane), eq(dkGot, 0)),
+             set_var(dkGot, 1), SFX("bigwin")),
+         set_var(mult, item_of(duckMults,
+                               add(add(mul(sub(dkMode, 1), 12), dkLane),
+                                   mul(dkGot, 48)))),
+         SFX("gem", mul(sub(dkLane, 1), 10)),
+         broadcast(p, "duckRefresh"),
+         # reaching HOME cashes out automatically
+         if_(not_(lt(dkLane, 12)),
+             set_var(win, round_(mul(bet, mult))), change_var(chips, win),
+             set_var(roundOn, 0), broadcast(p, "duckWin"),
+             set_var(msgId, 11), SFX("bigwin"),
+             wait(1.4), set_var(msgId, 1),
+             set_var(dkLane, 0), set_var(dkGot, 0), set_var(dkEgg, 0),
+             broadcast(p, "duckRefresh"))],
+        [set_var(dkHit, dkTgt),
+         broadcast(p, "duckStrike"), wait(0.26),
+         SFX("bomb"), broadcast(p, "duckDie"),
+         set_var(roundOn, 0), set_var(mult, 0),
+         wait(0.15), set_var(msgId, 8),
+         wait(0.9), set_var(msgId, 1),
+         set_var(dkLane, 0), set_var(dkGot, 0), set_var(dkEgg, 0),
+         broadcast(p, "duckRefresh")]),
+    set_var(busy, 0),
+    x=40, y=40,
+)
+
+dctl.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 7), eq(busy, 0)),
+        if_else(
+            eq(roundOn, 0),
+            [if_else(lt(chips, bet),
+                     [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+                     [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+                      set_var(dkLane, 0), set_var(dkGot, 0), set_var(mult, 0),
+                      # one run in four hides an egg, on a lane of its own
+                      if_else(eq(rand(1, 4), 1),
+                              [set_var(dkEgg, rand(1, 12))],
+                              [set_var(dkEgg, 0)]),
+                      set_var(roundOn, 1), broadcast(p, "duckRefresh"),
+                      hop.call()])],
+            [hop.call()])),
+)
+dctl.script(
+    when_bc(p, "duckCash"),
+    if_(and_(eq(screen, 7), and_(eq(roundOn, 1), gt(dkLane, 0))),
+        set_var(busy, 1),
+        set_var(win, round_(mul(bet, mult))), change_var(chips, win),
+        set_var(roundOn, 0), broadcast(p, "duckWin"),
+        set_var(msgId, 9), SFX("cash"),
+        broadcast(p, "duckRefresh"),
+        wait(1.6), set_var(msgId, 1), set_var(busy, 0),
+        set_var(dkLane, 0), set_var(dkGot, 0), set_var(dkEgg, 0),
+        broadcast(p, "duckRefresh")),
+)
+
+
+# ===================================================== CRASH
+# A rocket climbs and the multiplier runs with it; bail out before it goes.
+# The point at which it goes is drawn once, at launch, from the standard crash
+# distribution P(fail >= x) = 0.96 / x - so every cash-out point returns the
+# same, and nothing depends on frame timing (CLAUDE.md).
+#
+# `busy` deliberately stays 0 for the whole climb: bailing out mid-animation is
+# the entire game, so CASH OUT must remain live.
+PADY = AV4.PAD_Y
+PX0, PY0 = AV4.ROCK_X0, AV4.ROCK_Y0
+PX1, PY1 = AV4.ROCK_X1, AV4.ROCK_Y1
+LOGG = T4["logGrowth"]
+PRECN = T4["prec"]
+
+sky = p.sprite("SkyPanel")
+C(sky, "sky", "crsky")
+sky.x, sky.y, sky.visible = 0, 0, False
+sky.script(when_flag(), goto(0, 0), go_layer("back"))
+sky.script(when_flag(), vis([8], [go_layer("back")]))
+
+# --- drifting stars, to give the climb some speed
+spark = p.sprite("Spark")
+for n in range(1, 4):
+    C(spark, f"s{n}", f"crspark{n}")
+spark.visible = False
+kIdx = spark.local_var("kIdx", 0)
+kY = spark.local_var("kY", 0)
+kX = spark.local_var("kX", 0)
+spark.script(when_flag(), hide(), set_var(kIdx, 0),
+             repeat(6, change_var(kIdx, 1), clone()), set_var(kIdx, 0))
+spark.script(
+    when_clone(),
+    switch_costume_r(add(mod(kIdx, 3), 1), "s1"),
+    set_var(kX, sub(mul(kIdx, 64), 190)),
+    set_var(kY, sub(mul(kIdx, 33), 95)),
+    set_effect("ghost", 45),
+    forever(
+        if_else(eq(screen, 8),
+                [show(),
+                 # nearer stars fall faster; the rocket climbs, so they descend
+                 change_var(kY, sub(-0.5, mul(mod(kIdx, 3), 0.45))),
+                 if_(lt(kY, -98), set_var(kY, 98)),
+                 goto(kX, kY)],
+                [hide()])),
+)
+
+# --- the rocket
+rock = p.sprite("Rocket")
+for n in range(1, 5):
+    C(rock, f"r{n}", f"crrocket{n}")
+rock.x, rock.y, rock.visible = PX0, PY0, False
+rProg = rock.local_var("rProg", 0)
+rock.script(when_flag(), goto(PX0, PY0), switch_costume("r1"))
+rock.script(when_flag(), vis([8]))
+rock.script(
+    when_bc(p, "avReset"),
+    if_(eq(screen, 8),
+        go_layer("front"), switch_costume("r1"), clear_effects(),
+        set_size(100), goto(PX0, PY0)),
+)
+rock.script(
+    when_bc(p, "avFly"),
+    if_(eq(screen, 8),
+        go_layer("front"),
+        # log10 of the multiplier, normalised so 10x is a full climb
+        set_var(rProg, mathop("log", mult)),
+        if_(gt(rProg, 1), set_var(rProg, 1)),
+        if_(lt(rProg, 0), set_var(rProg, 0)),
+        # full thrust once it is really moving
+        if_else(gt(rProg, 0.35), [switch_costume("r3")], [switch_costume("r2")]),
+        goto(add(PX0, mul(PX1 - PX0, rProg)),
+             add(PY0, mul(PY1 - PY0, rProg)))),
+)
+rock.script(
+    when_bc(p, "avDitch"),
+    if_(eq(screen, 8),
+        switch_costume("r4"),
+        gl(0.45, add(xpos(), 26), sub(ypos(), 54)),
+        set_effect("ghost", 55)),
+)
+
+# The burst lands where the rocket does. Sprites cannot read each other's
+# position through this DSL, so it recomputes the same point from `mult`,
+# which is pinned to avLand by the time avDitch fires.
+bst = p.sprite("Burst")
+C(bst, "b", "crburst")
+bst.visible = False
+bProg = bst.local_var("bProg", 0)
+bst.script(when_flag(), hide())
+bst.script(
+    when_bc(p, "avDitch"),
+    if_(eq(screen, 8),
+        set_var(bProg, mathop("log", mult)),
+        if_(gt(bProg, 1), set_var(bProg, 1)),
+        if_(lt(bProg, 0), set_var(bProg, 0)),
+        goto(add(PX0, mul(PX1 - PX0, bProg)),
+             add(PY0, mul(PY1 - PY0, bProg))),
+        go_layer("front"), set_size(70), show(),
+        repeat(6, change_size(14), wait(0.02)),
+        wait(0.5), hide()),
+)
+bst.script(when_bc(p, "avReset"), hide())
+bst.script(when_bc(p, "screenChanged"), hide())
+
+# --- the round
+avc = p.sprite("CrashCtrl")
+C(avc, "blank", "msg_blank")
+avc.visible = False
+avc.script(when_flag(), hide())
+
+# Capturing the multiplier and paying happens inside one warped procedure, so
+# a cash-out cannot land between reading `mult` and crediting the win.
+do_cash = Proc(avc, "crash cash", [], warp=True)
+define(avc, do_cash,
+       if_(and_(eq(screen, 8), eq(roundOn, 1)),
+           set_var(avAt, mult),
+           set_var(win, round_(mul(bet, avAt))),
+           change_var(chips, win),
+           set_var(avCashed, 1),
+           set_var(roundOn, 0), set_var(busy, 1)),
+       x=40, y=40)
+
+avc.script(when_bc(p, "avCash"), do_cash.call())
+
+avc.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 8), and_(eq(roundOn, 0), eq(busy, 0))),
+        if_else(
+            lt(chips, bet),
+            [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+            [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+             set_var(avCashed, 0), set_var(avTick, 0), set_var(mult, 1),
+             set_var(avAt, 0),
+             # draw where it fails, once, before anything moves
+             set_var(avU, rand(1, PRECN)),
+             set_var(avLand, div(round_(mul(div(mul(T4["house"], PRECN), avU),
+                                            100)), 100)),
+             set_var(roundOn, 1),
+             broadcast(p, "avReset"), SFX("reel"),
+             repeat_until(
+                 eq(roundOn, 0),
+                 change_var(avTick, 1),
+                 set_var(tmp, div(round_(mul(mathop("10 ^", mul(avTick, LOGG)),
+                                             100)), 100)),
+                 if_else(
+                     lt(tmp, avLand),
+                     [set_var(mult, tmp), broadcast(p, "avFly"),
+                      # auto cash-out fires the moment the target is reached
+                      if_(and_(gt(avAuto, 1),
+                               not_(lt(mult, item_of(avAutoVals, avAuto)))),
+                          do_cash.call()),
+                      # no wait: repeat_until already yields once per frame,
+                      # which is a deterministic tick with no rounding up
+                      ],
+                     [set_var(mult, avLand), set_var(roundOn, 0),
+                      set_var(busy, 1)])),
+             set_var(busy, 1),
+             if_(eq(screen, 8),
+                 if_else(eq(avCashed, 1),
+                         [set_var(msgId, 9), SFX("cash")],
+                         [broadcast(p, "avDitch"), SFX("bomb"),
+                          wait(0.5), set_var(msgId, 3)]),
+                 wait(1.6), set_var(msgId, 1)),
+             set_var(mult, 1), set_var(busy, 0),
+             broadcast(p, "avReset")])),
+)
+
+
+
+# ===================================================== AVIAMASTERS
+# Fly from one carrier to the other collecting orbs: numbers add to the running
+# multiplier, x-orbs multiply it, rockets halve it without ending the round.
+# Land and you are paid; ditch and the stake is gone; bail out any time for
+# whatever the readout says.
+#
+# Both project rules hold. The orb and the ditch for each slot are rolled at
+# that slot and applied before anything animates, so no payout depends on where
+# a sprite happens to be; and src/tables5.py solves the per-slot ditch odds so
+# every cash-out point is worth exactly the house 0.96, which means there is no
+# stopping strategy to find. `busy` stays 0 for the whole flight, because
+# bailing out mid-animation is the point.
+AMSLOTS = T5["slots"]
+AMPREC = T5["prec"]
+AMCAP = T5["cap"]
+PLX, PLO, PHI = AV5.PLANE_X, AV5.PLANE_LO, AV5.PLANE_HI
+DECKY, CARL, CARR = AV5.DECK_Y, AV5.CARRIER_L, AV5.CARRIER_R
+
+amsky = p.sprite("AvSky")
+C(amsky, "sky", "avsky")
+amsky.x, amsky.y, amsky.visible = 0, 0, False
+amsky.script(when_flag(), goto(0, 0), go_layer("back"))
+amsky.script(when_flag(), vis([9], [go_layer("back")]))
+
+# --- orbs drifting across the sky. These are scenery: the route decides what
+# the plane actually collects, so what floats past tells the player nothing and
+# cannot be read for an edge. The one being collected is set to the real orb.
+orb = p.sprite("AvOrb")
+for n in range(1, len(T5["orbNames"]) + 1):
+    C(orb, f"o{n}", f"avorb{n}")
+orb.visible = False
+oIdx = orb.local_var("oIdx", 0)
+oX = orb.local_var("oX", 0)
+oY = orb.local_var("oY", 0)
+orb.script(when_flag(), hide(), set_var(oIdx, 0),
+           repeat(5, change_var(oIdx, 1), clone()), set_var(oIdx, 0))
+orb.script(
+    when_clone(),
+    set_var(oX, sub(mul(oIdx, 86), 180)),
+    set_var(oY, add(mul(oIdx, 23), sub(PLO, 30))),
+    forever(
+        if_else(eq(screen, 9),
+                [switch_costume_r(add(mod(add(oIdx, mathop("floor",
+                                                           div(oX, 53))), 4), 2),
+                                  "o2"),
+                 show(), set_effect("ghost", 30),
+                 change_var(oX, -1.6),
+                 if_(lt(oX, AV5.ORB_OUT),
+                     set_var(oX, AV5.ORB_IN),
+                     set_var(oY, add(PLO, rand(-24, 74)))),
+                 goto(oX, oY)],
+                [hide()])),
+)
+
+# --- the plane
+apl = p.sprite("AvPlane")
+for n in range(1, 4):
+    C(apl, f"p{n}", f"avplane{n}")
+apl.x, apl.y, apl.visible = CARL, DECKY + 6, False
+aProg = apl.local_var("aProg", 0)
+apl.script(when_flag(), goto(CARL, DECKY + 6), switch_costume("p1"))
+apl.script(when_flag(), vis([9]))
+apl.script(
+    when_bc(p, "amReset"),
+    if_(eq(screen, 9),
+        go_layer("front"), switch_costume("p1"), clear_effects(),
+        goto(CARL, DECKY + 6)),
+)
+apl.script(
+    when_bc(p, "amFly"),
+    if_(eq(screen, 9),
+        go_layer("front"), switch_costume("p2"),
+        # climb out over the first two orbs, then hold station while the sky
+        # moves past, then settle back down for the far deck
+        set_var(aProg, div(amSlot, AMSLOTS)),
+        if_else(lt(aProg, 0.18),
+                [gl(0.2, add(CARL, mul(sub(PLX, CARL), div(aProg, 0.18))),
+                    add(DECKY + 6, mul(sub(PLO, DECKY - 6), div(aProg, 0.18))))],
+                [if_else(gt(aProg, 0.86),
+                         [gl(0.2, add(PLX, mul(sub(CARR, PLX),
+                                               div(sub(aProg, 0.86), 0.14))),
+                             add(PLO, mul(sub(DECKY + 6, PLO),
+                                          div(sub(aProg, 0.86), 0.14))))],
+                         [gl(0.2, PLX, add(PLO, mul(sub(PHI, PLO), aProg)))])])),
+)
+apl.script(
+    when_bc(p, "amDitch"),
+    if_(eq(screen, 9),
+        switch_costume("p3"),
+        gl(0.5, add(xpos(), 30), AV5.SEA_Y - 6),
+        set_effect("ghost", 50)),
+)
+apl.script(
+    when_bc(p, "amLand"),
+    if_(eq(screen, 9),
+        switch_costume("p1"), gl(0.3, CARR, DECKY + 6)),
+)
+
+# --- the orb the plane just took, popped at the plane
+pick = p.sprite("AvPick")
+for n in range(1, len(T5["orbNames"]) + 1):
+    C(pick, f"o{n}", f"avorb{n}")
+pick.visible = False
+pick.script(when_flag(), hide())
+pick.script(
+    when_bc(p, "amCollect"),
+    if_(and_(eq(screen, 9), gt(amOrb, 1)),
+        switch_costume_r(amOrb, "o1"),
+        goto(add(PLX, 30), ypos()), go_layer("front"),
+        set_size(100), clear_effects(), show(),
+        repeat(7, change_x(-4), change_size(6), change_effect("ghost", 12)),
+        hide()),
+)
+pick.script(when_bc(p, "amReset"), hide())
+pick.script(when_bc(p, "screenChanged"), hide())
+pick.script(
+    when_bc(p, "amFly"),
+    if_(eq(screen, 9), goto(add(PLX, 30), add(PLO, mul(sub(PHI, PLO),
+                                                       div(amSlot, AMSLOTS))))),
+)
+
+# --- the round
+amc = p.sprite("AviaCtrl")
+C(amc, "blank", "msg_blank")
+amc.visible = False
+amc.script(when_flag(), hide())
+
+# Reading the multiplier and paying happen in one warped procedure, so a
+# cash-out cannot land between the two and pay against a figure the player
+# never saw. No waits in here - see PITFALLS on warp procedures that yield.
+am_cash = Proc(amc, "avia cash", [], warp=True)
+define(amc, am_cash,
+       if_(and_(eq(screen, 9), and_(eq(roundOn, 1), gt(amSlot, 0))),
+           set_var(amAt, amVal),
+           set_var(win, round_(mul(bet, amAt))),
+           change_var(chips, win),
+           set_var(amCashed, 1),
+           set_var(roundOn, 0), set_var(busy, 1)),
+       x=40, y=40)
+
+amc.script(when_bc(p, "amCash"), am_cash.call())
+amc.script(when_bc(p, "screenChanged"), broadcast(p, "amReset"))
+
+amc.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 9), and_(eq(roundOn, 0), eq(busy, 0))),
+        if_else(
+            lt(chips, bet),
+            [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+            [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+             set_var(amSlot, 0), set_var(amVal, 1), set_var(mult, 1),
+             set_var(amCashed, 0), set_var(amDown, 0), set_var(amAt, 0),
+             delete_all(amLog),
+             set_var(roundOn, 1),
+             broadcast(p, "amReset"), SFX("reel"),
+             repeat_until(
+                 eq(roundOn, 0),
+                 change_var(amSlot, 1),
+                 # the ditch for this slot, rolled before anything moves
+                 if_else(
+                     not_(gt(rand(1, AMPREC), item_of(amRamp, amSlot))),
+                     [set_var(amDown, 1), set_var(amVal, 0), set_var(mult, 0),
+                      set_var(roundOn, 0), set_var(busy, 1)],
+                     [# which orb this slot holds
+                      set_var(amRoll, rand(1, 100)),
+                      set_var(amOrb, 1),
+                      repeat_until(not_(gt(amRoll, item_of(amCum, amOrb))),
+                                   change_var(amOrb, 1)),
+                      set_var(amVal,
+                              div(round_(mul(add(mul(item_of(amA, amOrb), amVal),
+                                                 item_of(amB, amOrb)), 100)),
+                                  100)),
+                      if_(gt(amVal, AMCAP), set_var(amVal, AMCAP)),
+                      add_to(amLog, amOrb),
+                      set_var(mult, amVal),
+                      broadcast(p, "amFly"),
+                      broadcast(p, "amCollect"),
+                      if_(eq(item_of(amB, amOrb), 0),
+                          if_else(lt(item_of(amA, amOrb), 1),
+                                  [SFX("bomb")], [SFX("gem", 20)])),
+                      if_(gt(item_of(amB, amOrb), 0), SFX("chip")),
+                      # auto cash-out fires the instant the target is reached
+                      if_(and_(gt(amAuto, 1),
+                               not_(lt(amVal, item_of(avAutoVals, amAuto)))),
+                          am_cash.call()),
+                      # `roundOn` still 1 means nothing has paid yet. Without
+                      # that guard an auto cash-out on the LAST slot pays, and
+                      # then the landing below pays the same flight again.
+                      if_(and_(not_(lt(amSlot, AMSLOTS)), eq(roundOn, 1)),
+                          # made the far carrier: everything collected is paid
+                          set_var(amAt, amVal),
+                          set_var(win, round_(mul(bet, amAt))),
+                          change_var(chips, win),
+                          set_var(roundOn, 0), set_var(busy, 1),
+                          broadcast(p, "amLand")),
+                      wait(0.34)])),
+             if_(eq(screen, 9),
+                 if_else(eq(amDown, 1),
+                         [broadcast(p, "amDitch"), SFX("bomb"),
+                          wait(0.5), set_var(msgId, 3)],
+                         [set_var(msgId, 9), SFX("cash")]),
+                 wait(1.5), set_var(msgId, 1)),
+             set_var(mult, 1), set_var(amVal, 1), set_var(amSlot, 0),
+             set_var(busy, 0),
+             broadcast(p, "amReset")])),
 )
 
 out = str(BUILD / "ClubRoyale_fast.sb3") if FAST else str(DIST / "ClubRoyale.sb3")

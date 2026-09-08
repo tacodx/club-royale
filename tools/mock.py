@@ -20,7 +20,7 @@ T = A11.T
 T2 = json.load(open(BUILD / "tables2.json"))
 ROWC, ROWSP, ROWHS = A11.ROWCOUNT, A11.ROWSP, A11.ROWHS
 BKV = A11.BUCKET_VALS
-DCH = list("0123456789") + [".", ","]
+DCH = list("0123456789") + [".", ",", "", "x", "M", "B"]  # "" is the blank, d13
 
 
 def stage():
@@ -45,7 +45,7 @@ def dig(c, s, cx, y, gap=16, mode="C"):
         put(c, f"d{DCH.index(ch) + 1}", x, y)
 
 
-def chrome(c, chips="12450"):
+def chrome(c, chips="12,450"):
     dig(c, chips, -166, 163, 15, "L")
     put(c, "btn_back", 192, 163)
 
@@ -65,9 +65,14 @@ SPOTY = [50] + [24 + ((n - 1) % 3) * 26 for n in range(1, 37)] + \
 
 def lobby():
     c = stage(); put(c, "title", 0, 106)
-    for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines",
-                           "lt_bj", "lt_roulette", "lt_stairs"], 1):
-        put(c, t, -140 + 140 * ((i - 1) % 3), 24 - 96 * ((i - 1) // 3))
+    # nine tiles: five across the top, four centred beneath (see build.py)
+    for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines", "lt_bj",
+                           "lt_roulette", "lt_stairs", "lt_duck", "lt_crash",
+                           "lt_avia"], 1):
+        if i <= 5:
+            put(c, t, -176 + 88 * (i - 1), 30)
+        else:
+            put(c, t, -132 + 88 * (i - 6), -58)
     chrome(c); return c
 
 
@@ -130,6 +135,82 @@ def stairs():
     chrome(c); return c
 
 
+def duck(lane=5, egg=True):
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v3 as AV3
+    c = stage()
+    put(c, "duckroad", 0, 0)
+    mode = 2                                   # MEDIUM
+    for i in range(1, 13):
+        idx = (mode - 1) * 12 + i + (48 if egg and i <= lane else 0)
+        put(c, f"dm{idx}", AV3.LANE_X[i - 1], AV3.LABEL_Y,
+            ghost=0 if i == lane else 0.55)
+    # ambient traffic in lanes the duck is not standing in
+    for i, cn in [(2, "dcar1"), (8, "dcar3"), (11, "dcar2")]:
+        put(c, cn, AV3.LANE_X[i - 1], 40 - 22 * i, size=84, ghost=0.42)
+    x = AV3.LANE_X[lane - 1] if lane else AV3.KERB_X
+    put(c, "duck1", x, AV3.DUCK_Y)
+    if egg:
+        put(c, "degg", x, AV3.DUCK_Y + 24)
+    betbar(c); put(c, "sel_duck2", -45, -152)
+    put(c, "btn_go", 52, -152); put(c, "btn_cashout", 158, -152)
+    put(c, "plq_mult", 0, 163); dig(c, "7.27", 86, 163, 14)
+    chrome(c); return c
+
+
+def crash(mult="4.86", flying=True):
+    import sys, math
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v4 as AV4
+    c = stage()
+    put(c, "crsky", 0, 0)
+    for i, (sn, sx, sy) in enumerate([("crspark3", -120, 40), ("crspark2", 30, -20),
+                                      ("crspark1", 150, 70), ("crspark2", -60, -60)], 1):
+        put(c, sn, sx, sy, ghost=0.45)
+    prog = min(1.0, math.log10(float(mult))) if flying else 0.0
+    rx = AV4.ROCK_X0 + (AV4.ROCK_X1 - AV4.ROCK_X0) * prog
+    ry = AV4.ROCK_Y0 + (AV4.ROCK_Y1 - AV4.ROCK_Y0) * prog
+    put(c, "crrocket3" if prog > 0.35 else ("crrocket2" if flying else "crrocket1"),
+        rx, ry)
+    dig(c, mult + "x", AV4.MULT_XY[0], AV4.MULT_XY[1], AV4.MULT_GAP)
+    betbar(c); put(c, "sel_auto3", -45, -152)
+    if flying:
+        put(c, "btn_cashout", 158, -152)
+    else:
+        put(c, "btn_launch", 52, -152)
+    chrome(c); return c
+
+
+def avia(slot=6, mult="3.75", flying=True):
+    import sys
+    sys.path.insert(0, str(ROOT / "src"))
+    import assets_v4 as AV4, assets_v5 as AV5
+    c = stage()
+    put(c, "avsky", 0, 0)
+    # scenery orbs drifting past, one per clone
+    for i, ox in enumerate([150, 60, -40, -130, 190], 1):
+        put(c, f"avorb{2 + (i % 5)}", ox, AV5.PLANE_LO + 12 + 22 * (i % 4),
+            ghost=0.3)
+    prog = slot / 14
+    if not flying:
+        px, py, cost = AV5.CARRIER_L, AV5.DECK_Y + 6, "avplane1"
+    else:
+        px = AV5.PLANE_X
+        py = AV5.PLANE_LO + (AV5.PLANE_HI - AV5.PLANE_LO) * prog
+        cost = "avplane2"
+    put(c, cost, px, py)
+    if flying:                                    # the orb just collected
+        put(c, "avorb4", px + 30, py, size=118, ghost=0.15)
+    dig(c, mult + "x", AV4.MULT_XY[0], AV4.MULT_XY[1], AV4.MULT_GAP)
+    betbar(c); put(c, "sel_auto3", -45, -152)
+    if flying:
+        put(c, "btn_cashout", 158, -152)
+    else:
+        put(c, "btn_takeoff", 52, -152)
+    chrome(c); return c
+
+
 def roulette(spinning=False):
     c = stage()
     for i in range(1, 50):
@@ -184,6 +265,12 @@ SCREENS = {
     "plinko_12": lambda: plinko(1, "med"),
     "plinko_16": lambda: plinko(2, "high"),
     "mines": mines, "stairs": stairs,
+    "duck_road": lambda: duck(5, True),
+    "duck_start": lambda: duck(0, False),
+    "crash_flight": lambda: crash("4.86", True),
+    "crash_idle": lambda: crash("1.00", False),
+    "avia_flight": lambda: avia(6, "3.75", True),
+    "avia_idle": lambda: avia(0, "1.00", False),
     "roulette_bets": lambda: roulette(False),
     "roulette_spin": lambda: roulette(True),
     "blackjack_idle": lambda: blackjack("idle"),
@@ -191,6 +278,31 @@ SCREENS = {
     "blackjack_split": lambda: blackjack("split"),
     "blackjack_insurance": lambda: blackjack("insurance"),
 }
+
+# the nine screens that go in the README banner, one per game
+BANNER = ["slots", "plinko_12", "mines", "blackjack_hand", "roulette_bets",
+          "stairs", "duck_road", "crash_flight", "avia_flight"]
+
+
+def banner(cols=3, cell_w=490, gap=4):
+    """docs/screens.png, composed from the rendered screens.
+
+    Hand-assembled until v3.9, which is why it still showed eight games after
+    the ninth shipped. Generated from BANNER now, so adding a game to SCREENS
+    and to that list is all it takes.
+    """
+    cell_h = round(cell_w * 720 / 960)
+    rows = (len(BANNER) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * cell_w + (cols + 1) * gap,
+                              rows * cell_h + (rows + 1) * gap), (10, 8, 12))
+    for i, name in enumerate(BANNER):
+        im = Image.open(OUT / f"{name}.png").convert("RGB").resize((cell_w, cell_h))
+        sheet.paste(im, (gap + (i % cols) * (cell_w + gap),
+                         gap + (i // cols) * (cell_h + gap)))
+    out = ROOT / "docs" / "screens.png"
+    sheet.save(out)
+    print(f"  docs/screens.png ({len(BANNER)} games)")
+
 
 if __name__ == "__main__":
     A11.build(); A2.build()
@@ -204,3 +316,5 @@ if __name__ == "__main__":
                     (10 + (i % 2) * 965, 10 + (i // 2) * 725))
     sheet.save(OUT / "_all.png")
     print(f"{len(want)} screens -> mocks/_all.png")
+    if all(n in want for n in BANNER):
+        banner()

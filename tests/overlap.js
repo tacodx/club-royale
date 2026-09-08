@@ -33,7 +33,7 @@ function blockers(name){
 }
 const BTNS=['ActionBtn','BackBtn','BetPlus','BetMinus','CashoutBtn','HitBtn',
   'StandBtn','DoubleBtn','SplitBtn','InsureBtn','NoInsBtn','ClearBtn','UndoBtn',
-  'RowsSel','RiskSel','BombsSel','DiffSel'];
+  'RowsSel','RiskSel','BombsSel','DiffSel','DuckSel','AvSel'];
 const faults=[];
 function sweep(label){
   for(const n of BTNS){
@@ -62,6 +62,28 @@ function sweep(label){
   stage().lookupVariableByNameAndType('chips').value=100000;
   click(act); await until(()=>Number(gv('roundOn'))===1,'stairs start'); await sleep(200);
   sweep('stairs in round');
+  click(sp('BackBtn')); await sleep(400);
+  // duck road: idle, and standing on the road mid-run
+  click(tile(7)); await sleep(320); sweep('duck idle');
+  stage().lookupVariableByNameAndType('chips').value=100000;
+  for(let i=0;i<30;i++){
+    if(Number(gv('roundOn'))===1&&Number(gv('dkLane'))>0) break;
+    await until(()=>Number(gv('busy'))===0,'duck idle2',500);
+    click(act); await sleep(240);
+  }
+  sweep('duck in run');
+  click(sp('BackBtn')); await sleep(400);
+  // aviamasters: idle, and with the plane in the air
+  click(tile(8)); await sleep(320); sweep('avia idle');
+  stage().lookupVariableByNameAndType('chips').value=100000;
+  for(let i=0;i<20;i++){
+    if(Number(gv('roundOn'))===1) break;
+    await until(()=>Number(gv('busy'))===0&&Number(gv('roundOn'))===0,'avia idle2',600);
+    click(act); await sleep(120);
+  }
+  sweep('avia in flight');
+  if(Number(gv('roundOn'))===1){ click(sp('CashoutBtn')); }
+  await until(()=>Number(gv('busy'))===0&&Number(gv('roundOn'))===0,'avia settle',900);
   click(sp('BackBtn')); await sleep(400);
   // blackjack: idle, mid-hand, and an insurance offer if one turns up
   click(tile(4)); await sleep(320); sweep('blackjack idle');

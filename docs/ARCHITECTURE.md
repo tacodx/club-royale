@@ -56,7 +56,8 @@ Bottom bar x positions, shared across games:
 ```
 -205 BetMinus   -152 BetPlaque   -99 BetPlus
  -45/-40 selector 1     24 selector 2
-  52 START (mines/stairs)   75 SPIN/DEAL   110 DROP/SPIN   158 CASH OUT
+  52 START (mines/stairs) / GO (duck road) / LAUNCH (crash)
+  75 SPIN/DEAL   110 DROP/SPIN   158 CASH OUT
 blackjack: -150 HIT  -50 STAND  50 DOUBLE  150 SPLIT
            -60 INSURE  60 NO
 ```
@@ -66,7 +67,8 @@ blackjack action buttons.
 
 ## Screen routing
 
-`screen` holds 0–6: lobby, slots, plinko, mines, blackjack, roulette, stairs.
+`screen` holds 0–9: lobby, slots, plinko, mines, blackjack, roulette, stairs,
+duck road, crash, aviamasters.
 The stage has one `when I receive` per screen that sets `screen`, resets
 per-round state and then broadcasts `screenChanged`.
 
@@ -99,7 +101,35 @@ Scratch has no 2-D lists.
 | `plinkoMults` | 9 blocks of 17 | `((rowsIdx-1)*3 + (riskIdx-1))*17 + bucket` |
 | `mineMults` | 4 blocks of 24 | `(bombsIdx-1)*24 + picks` |
 | `stairMults` | 5 blocks of 9 | `(stDiff-1)*9 + (stRow-1)` |
+| `duckMults` | 2 x 4 blocks of 12 | `(dkMode-1)*12 + dkLane + 48*dkGot` |
 | `rBets` | 49 slots | 1 = number 0, 2–37 = numbers 1–36, 38–49 = outside bets |
+| `amRamp` | 14 slots | per-slot ditch odds out of 1000, indexed by `amSlot` |
+| `amCum`, `amA`, `amB` | 6 orbs | cumulative weight, and the orb's affine map |
+
+Crash needs no table: `src/tables4.py` only fixes the constants and asserts
+the distribution, because the failure point is sampled directly as
+`HOUSE * PREC / rand(1, PREC)`.
+
+`src/tables5.py` solves Aviamasters per slot rather than as a single ladder.
+Every orb is an affine map `v -> a*v + b`, so the value distribution after each
+slot can be walked exactly; from that, `alive_k = HOUSE / E[V_k]` gives the
+survival curve that makes **every** cash-out point worth 0.96, and
+`d_k = 1 - alive_k/alive_(k-1)` the per-slot ditch odds that ship as `amRamp`.
+A flat ditch rate does not work — it puts the optimal stopping point at slot 1
+— and the docstring records why.
+
+That solver has to round the way *Scratch* rounds, not the way Python does.
+The runtime computes `round(v * 100) / 100`, and Scratch's round block is JS
+`Math.round`: halves go away from zero. Python's `round()` goes to even, and
+the difference is reachable — halving 1.25 gives exactly 0.625, so Python says
+0.62 where the game says 0.63. Modelling it Python's way put the shipped ramp
+1/1000 out at three slots; `tests/play_avia.js` caught it by solving the table
+independently.
+
+`src/tables3.py` solves Duck Road as `HOUSE / (p**n * bonus(n))`, where
+`bonus(n)` is the expected golden-egg contribution at lane n. It emits **two**
+ladders rather than one: the runtime never multiplies a payout by 3 itself,
+because `1.02 * 3` renders as `3.0599999999999996` in the multiplier readout.
 
 `src/tables.py` bisects a scale factor per Plinko table until the binomially
 weighted RTP hits 95%, then rounds to display-friendly values and re-checks.
@@ -109,20 +139,27 @@ returns exactly 36/37 by construction, asserted in `tables2.py`.
 ## Numeric display
 
 There are no Scratch variable monitors anywhere. Numbers are drawn with a
-`Digit` sprite carrying 13 costumes (`0`–`9`, `.`, `,`, blank) and 32 clones
-split across eight fields:
+`Digit` sprite carrying 16 costumes (`0`–`9`, `.`, `,`, blank, `x`, `M`, `B`)
+and 40 clones split across nine fields. The last three were appended *after* the
+blank so every costume index already in use kept its meaning, and a glyph is
+picked with a single `item # of digitChars` lookup whose list order is the
+costume order:
 
 | Field | Slots | Shows | Where |
 |---|---|---|---|
-| 1 | 7 | chips | top-left, left-aligned |
+| 1 | 7 | chips, formatted | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
-| 3 | 7 | multiplier | top bar (mines, stairs) |
+| 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
+| 9 | 8 | multiplier + `x` | centre of the sky, at 170% (crash) |
 | 4 | 2 | roulette result | under the wheel |
 | 5 | 6 | roulette stake | top bar |
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |
 
 Each clone reads one character of its source string and positions itself from
-the string length, so numbers stay centred as they grow.
+the string length, so numbers stay centred as they grow. A clone renders its
+character *by index*, so a string longer than its field is silently truncated -
+the bankroll is formatted (`999,999` / `12.58M` / `1.26B`, never more than seven
+characters) rather than trusted to stay short.
 
 ## Sound
 

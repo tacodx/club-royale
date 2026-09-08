@@ -17,3 +17,9 @@ def ensure_tables():
         import tables  # noqa: F401  (writes on import)
     if not (BUILD / "tables2.json").exists():
         import tables2  # noqa: F401
+    if not (BUILD / "tables3.json").exists():
+        import tables3  # noqa: F401
+    if not (BUILD / "tables4.json").exists():
+        import tables4  # noqa: F401
+    if not (BUILD / "tables5.json").exists():
+        import tables5  # noqa: F401

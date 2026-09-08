@@ -199,7 +199,7 @@ def stair_mults():
 
 
 # ========================================================= lobby v2
-LW, LH = 130, 84
+LW, LH = 82, 70
 
 
 def lobby_tile(name, label, icon):
@@ -220,9 +220,9 @@ def lobby_tile(name, label, icon):
     ld.polygon(chamfer_pts([8 * SC, 8 * SC, W - 3 - 8 * SC, H - 3 - 8 * SC],
                            11 * SC), outline=(255, 255, 255, 115), width=1)
     img = Image.alpha_composite(img, gold_fill(line))
-    icon(img, (W / 2, 30 * SC))
-    s, tr = fit(label, 13 * SC, 2.4 * SC, W - 22 * SC)
-    tracked(img, (W / 2, 64 * SC), label, s, tr, anchor="mm")
+    icon(img, (W / 2, H * 0.355))
+    s, tr = fit(label, 12 * SC, 2.0 * SC, W - 30 * SC, floor=6)
+    tracked(img, (W / 2, H * 0.762), label, s, tr, anchor="mm")
     return save(img, name)
 
 
@@ -314,6 +314,86 @@ def ic_stairs(img, c):
     _gold(img, f)
 
 
+def ic_duck(img, c):
+    x, y = c
+    def f(d):
+        # three lane stripes the duck is crossing
+        for i in range(-1, 2):
+            lx = x + i * 11 * SC
+            d.line([(lx, y - 14 * SC), (lx, y + 13 * SC)],
+                   fill=(255, 255, 255, 90), width=2)
+        # duck: body, head, beak
+        d.ellipse([x - 9 * SC, y - 1 * SC, x + 5 * SC, y + 9 * SC],
+                  fill=(255, 255, 255, 240))
+        d.ellipse([x + 1 * SC, y - 9 * SC, x + 10 * SC, y], 
+                  fill=(255, 255, 255, 255))
+        d.polygon([(x + 9 * SC, y - 6 * SC), (x + 9 * SC, y - 2 * SC),
+                   (x + 15 * SC, y - 4 * SC)], fill=(255, 255, 255, 255))
+    _gold(img, f)
+
+
+def ic_crash(img, c):
+    """A rocket climbing away, trailing exhaust."""
+    x, y = c
+
+    def f(d):
+        # exhaust trail, fading back down to the left
+        for tx, ty, a in [(-15, 12, 80), (-11, 8, 125), (-7, 4, 175)]:
+            d.ellipse([x + tx * SC - 1.5 * SC, y + ty * SC - 1.5 * SC,
+                       x + tx * SC + 1.5 * SC, y + ty * SC + 1.5 * SC],
+                      fill=(255, 255, 255, a))
+        # body, nose up and to the right
+        d.polygon([(x + 13 * SC, y - 13 * SC),      # nose
+                   (x + 6 * SC, y - 9 * SC),
+                   (x - 5 * SC, y + 2 * SC),
+                   (x - 1 * SC, y + 6 * SC),
+                   (x + 10 * SC, y - 5 * SC)],
+                  fill=(255, 255, 255, 250))
+        # fins
+        d.polygon([(x - 5 * SC, y + 2 * SC), (x - 9 * SC, y + 1 * SC),
+                   (x - 3 * SC, y + 6 * SC)], fill=(255, 255, 255, 235))
+        d.polygon([(x - 1 * SC, y + 6 * SC), (x - 2 * SC, y + 10 * SC),
+                   (x + 3 * SC, y + 4 * SC)], fill=(255, 255, 255, 235))
+        # a couple of stars
+        for sx, sy in [(-13, -9), (8, 9)]:
+            d.ellipse([x + sx * SC - 1.2 * SC, y + sy * SC - 1.2 * SC,
+                       x + sx * SC + 1.2 * SC, y + sy * SC + 1.2 * SC],
+                      fill=(255, 255, 255, 150))
+
+    _gold(img, f)
+
+
+def ic_avia(img, c):
+    """A propeller plane over the water, between two carriers."""
+    x, y = c
+
+    def f(d):
+        # the waterline and two decks
+        d.line([(x - 17 * SC, y + 11 * SC), (x + 17 * SC, y + 11 * SC)],
+               fill=(255, 255, 255, 90), width=2)
+        for dx in (-13, 13):
+            d.polygon([(x + dx * SC - 5 * SC, y + 8 * SC),
+                       (x + dx * SC + 5 * SC, y + 8 * SC),
+                       (x + dx * SC + 4 * SC, y + 11 * SC),
+                       (x + dx * SC - 4 * SC, y + 11 * SC)],
+                      fill=(255, 255, 255, 170))
+        # the plane, mid-crossing
+        d.polygon([(x - 7 * SC, y - 3 * SC), (x + 7 * SC, y - 4 * SC),
+                   (x + 10 * SC, y - 1 * SC), (x + 6 * SC, y + 1 * SC),
+                   (x - 7 * SC, y)], fill=(255, 255, 255, 250))
+        d.polygon([(x - 7 * SC, y - 4 * SC), (x - 4 * SC, y - 9 * SC),
+                   (x - 1 * SC, y - 4 * SC)], fill=(255, 255, 255, 240))
+        d.rectangle([x - 4 * SC, y - 8 * SC, x + 5 * SC, y - 6 * SC],
+                    fill=(255, 255, 255, 230))
+        # two orbs in the sky ahead
+        for ox, oy in [(11, -8), (14, 3)]:
+            d.ellipse([x + ox * SC - 2.2 * SC, y + oy * SC - 2.2 * SC,
+                       x + ox * SC + 2.2 * SC, y + oy * SC + 2.2 * SC],
+                      outline=(255, 255, 255, 200), width=2)
+
+    _gold(img, f)
+
+
 def build():
     deco_button("btn_double", "DOUBLE", 92, 38, fs=11, tracking=3)
     deco_button("btn_split", "SPLIT", 92, 38, fs=11, tracking=3)
@@ -334,6 +414,9 @@ def build():
     lobby_tile("lt_bj", "BLACKJACK", ic_bj)
     lobby_tile("lt_roulette", "ROULETTE", ic_roulette)
     lobby_tile("lt_stairs", "STAIRS", ic_stairs)
+    lobby_tile("lt_duck", "DUCK ROAD", ic_duck)
+    lobby_tile("lt_crash", "CRASH", ic_crash)
+    lobby_tile("lt_avia", "AVIAMASTERS", ic_avia)
 
 
 if __name__ == "__main__":
