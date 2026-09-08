@@ -360,7 +360,7 @@ dig.script(
                       AV4.MULT_XY[1])),
              set_var(tmp2, letter_of(dSlot, dTxt)),
              switch_costume_r(item_num_of(digitChars, tmp2), "d1"),
-             show()],
+             go_layer("front"), show()],
             [hide()])),
 )
 
@@ -1497,7 +1497,7 @@ sctl.script(
 # payout correctness never depends on timing and holds on the fast build.
 LANEX, KERBX = AV3.LANE_X, AV3.KERB_X
 DUCKY, LABELY = AV3.DUCK_Y, AV3.LABEL_Y
-CARTOP, CARBOT = AV3.CAR_TOP, AV3.CAR_BOT
+CARTOP, CARBOT = 88, -88        # inside the road, clear of the labels
 
 road = p.sprite("RoadPanel")
 C(road, "road", "duckroad")
@@ -1591,7 +1591,7 @@ car.script(
                      switch_costume_r(rand(1, 3), "c1"),
                      goto(item_of(duckX, cLane), CARTOP),
                      show(),
-                     glide(1.15, item_of(duckX, cLane), CARBOT),
+                     gl(1.15, item_of(duckX, cLane), CARBOT),
                      hide()),
                  wait(rand(0.25, 1.1))],
                 [hide(), wait(0.2)])),
@@ -1617,7 +1617,10 @@ dctl.visible = False
 dctl.script(when_flag(), hide())
 dctl.script(when_bc(p, "screenChanged"), broadcast(p, "duckRefresh"))
 
-hop = Proc(dctl, "duck hop", [])
+# NOT warped: this procedure waits and glides. A warp procedure that yields
+# makes scratch-vm re-run the yielding block instead of yielding, burning the
+# whole 500ms warp budget per wait and starving every other script.
+hop = Proc(dctl, "duck hop", [], warp=False)
 define(
     dctl, hop,
     set_var(busy, 1),
@@ -1641,15 +1644,15 @@ define(
              set_var(win, round_(mul(bet, mult))), change_var(chips, win),
              set_var(roundOn, 0), broadcast(p, "duckWin"),
              set_var(msgId, 11), SFX("bigwin"),
-             wait(2), set_var(msgId, 1),
+             wait(1.4), set_var(msgId, 1),
              set_var(dkLane, 0), set_var(dkGot, 0), set_var(dkEgg, 0),
              broadcast(p, "duckRefresh"))],
         [set_var(dkHit, dkTgt),
          broadcast(p, "duckStrike"), wait(0.26),
          SFX("bomb"), broadcast(p, "duckDie"),
          set_var(roundOn, 0), set_var(mult, 0),
-         wait(0.4), set_var(msgId, 8),
-         wait(1.5), set_var(msgId, 1),
+         wait(0.15), set_var(msgId, 8),
+         wait(0.9), set_var(msgId, 1),
          set_var(dkLane, 0), set_var(dkGot, 0), set_var(dkEgg, 0),
          broadcast(p, "duckRefresh")]),
     set_var(busy, 0),
@@ -1719,17 +1722,17 @@ ship.script(when_flag(), hide(), set_var(sIdx2, 0),
 ship.script(
     when_clone(),
     switch_costume_r(add(mod(sIdx2, 2), 1), "s1"),
-    set_var(sX, sub(mul(sIdx2, 150), 220)),
+    set_var(sX, sub(mul(sIdx2, 130), 190)),
     set_size(add(76, mul(sIdx2, 8))),
     set_effect("ghost", 30),
     forever(
         if_else(eq(screen, 8),
                 [show(),
-                 change_var(sX, -0.6),
-                 if_(lt(sX, -235), set_var(sX, 235)),
+                 change_var(sX, -0.4),
+                 if_(lt(sX, -196), set_var(sX, 196)),
                  goto(sX, add(AV4.SHIP_Y, mul(sIdx2, 6)))],
                 [hide()]),
-        wait(0.05)),
+        ),
 )
 
 # --- the seaplane
@@ -1751,7 +1754,7 @@ plane.script(
     if_(eq(screen, 8),
         go_layer("front"), switch_costume("p2"),
         # log10 of the multiplier, normalised so 100x is a full climb
-        set_var(pProg, div(mathop("log", mult), 2)),
+        set_var(pProg, mathop("log", mult)),
         if_(gt(pProg, 1), set_var(pProg, 1)),
         if_(lt(pProg, 0), set_var(pProg, 0)),
         goto(add(PX0, mul(PX1 - PX0, pProg)),
@@ -1776,7 +1779,7 @@ spl.script(when_flag(), hide())
 spl.script(
     when_bc(p, "avDitch"),
     if_(eq(screen, 8),
-        set_var(sProg, div(mathop("log", mult), 2)),
+        set_var(sProg, mathop("log", mult)),
         if_(gt(sProg, 1), set_var(sProg, 1)),
         if_(lt(sProg, 0), set_var(sProg, 0)),
         goto(add(PX0, mul(PX1 - PX0, sProg)), SEA_HZ - 10),
@@ -1833,7 +1836,9 @@ avc.script(
                       if_(and_(gt(avAuto, 1),
                                not_(lt(mult, item_of(avAutoVals, avAuto)))),
                           do_cash.call()),
-                      wait(T4["tick"])],
+                      # no wait: repeat_until already yields once per frame,
+                      # which is a deterministic tick with no rounding up
+                      ],
                      [set_var(mult, avLand), set_var(roundOn, 0),
                       set_var(busy, 1)])),
              set_var(busy, 1),

@@ -29,8 +29,13 @@ from math import log10
 
 HOUSE = 0.96
 PREC = 10000                  # rand(1, PREC) resolution of the landing draw
-GROWTH = 1.015                # multiplier growth per tick
-TICK = 0.07                   # seconds per tick at real timing
+# One tick is one frame. `wait` resolves against runtime.currentMSecs, which
+# only advances once per frame, so any duration that is not a whole number of
+# frames rounds UP: the old wait(0.07) actually took three frames (99.7ms), so
+# every figure the solver produced was 1.43x too slow in play. Yielding once per
+# loop iteration instead makes the tick exact and the readout run at 30Hz.
+TICK = 1 / 30
+GROWTH = 2 ** (1 / 84)        # 2x at 84 ticks = 2.8s
 LOG_GROWTH = log10(GROWTH)
 
 # auto cash-out targets; 0 = off, the rest fire the moment mult reaches them

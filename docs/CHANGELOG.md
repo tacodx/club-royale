@@ -3,6 +3,54 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.6
+
+Reported from play: Duck Road froze on every hop, Aviamasters ran in slow
+motion, and text was hidden behind the game panel on both. Three root causes,
+two of which had been in the project since v1.
+
+**`go_layer()` had never worked.** `src/blocks.py` emitted the opcode
+`looks_goto_front_back`; the real Scratch opcode is `looks_gotofrontback`.
+scratch-vm skips an unknown opcode silently - no warning, no error, the block
+simply never runs - so all 22 "go to front/back layer" blocks in the project
+were dead, and the v3.5 fix that relied on one changed nothing. That is why the
+Aviamasters readout and the Duck Road banner sat behind the panel; it is also
+why the bet amount was hidden behind its own plaque on every screen, the
+roulette winning number sat behind the wheel, and the stairs banner sat behind
+the bottom row of tiles.
+
+`tests/load.js` now fails the build if any non-shadow block uses an opcode
+scratch-vm cannot execute. It catches this class outright.
+
+**Duck Road's freeze was a warp procedure that waits.** `Proc.__init__`
+defaulted to `warp=True`, and `duck hop` was the one call site that omitted the
+keyword - so a procedure containing five `wait`s was marked "run without screen
+refresh". In warp mode scratch-vm re-executes a yielding block instead of
+yielding, and `control_wait` compares against a clock that only advances once
+per frame, so each wait busy-spun for the full 500ms warp budget and starved
+every other thread in the project.
+
+Measured on the shipped build: a survive hop took 536ms and rendered 2 frames
+(3.7fps); a death took 3043ms and rendered 6 (2.0fps); a full 12-lane clear
+took 8.44s and drew 28 frames in total. The duck's glide never ran at all - it
+teleported. After: 309ms and 18 frames (59fps) for a hop, 1625ms and 95 frames
+for a death.
+
+The default is now `warp=False`, which is a no-op for the other fifteen call
+sites (they all pass it explicitly), and `tests/validate.py` rejects any warp
+procedure containing a time-based yield.
+
+**Aviamasters ran 43% slow** because `wait(0.07)` is not a whole number of
+frames: it resolved on the third, a measured 99.7ms tick. The climb now yields
+once per frame for an exact 1/30s tick, and the growth is re-solved to reach 2x
+in 2.8s. The plane also barely moved - full travel needed 100x, which 1% of
+rounds reach - so the mapping now completes at 10x, roughly tripling the travel
+of a typical flight, and updates at 30Hz instead of 10Hz.
+
+**Also:** ambient cars ran off the road onto the felt and covered the lane
+labels; ships sailed out of the water at their wrap points; the death sequence
+held 1.9s with nothing on screen moving, now 1.05s.
+
 ## v3.5
 
 **Reported from play: text hidden behind the game panel** on both new screens -

@@ -147,6 +147,55 @@ dups = [k for k, v in seen.items() if v > 1]
 if dups:
     errs.append(f"duplicate block ids: {dups[:5]}")
 
+# A warp procedure ("run without screen refresh") that contains a time-based
+# yield is pathological: scratch-vm re-executes the yielding block instead of
+# yielding, so each wait busy-spins for the whole 500ms warp budget and starves
+# every other script in the project. "duck hop" shipped this way in v3.2 and
+# dropped the stage to a few frames per second for the length of every hop.
+# Loops are fine inside warp - that is what warp is for. Clocks are not.
+YIELDING = {
+    "control_wait", "control_wait_until", "motion_glidesecstoxy",
+    "motion_glideto", "event_broadcastandwait", "looks_sayforsecs",
+    "looks_thinkforsecs", "looks_switchbackdroptoandwait", "sound_playuntildone",
+}
+for t in proj["targets"]:
+    tn = t["name"]
+    blocks = t["blocks"]
+    for bid, b in blocks.items():
+        if b.get("opcode") != "procedures_prototype":
+            continue
+        mut = b.get("mutation") or {}
+        if str(mut.get("warp", "false")).lower() != "true":
+            continue
+        proccode = mut.get("proccode", bid)
+        # the prototype hangs off a definition; walk that definition's stack
+        root = None
+        for cid, c in blocks.items():
+            if c.get("opcode") == "procedures_definition":
+                cust = (c.get("inputs") or {}).get("custom_block")
+                if cust and len(cust) > 1 and cust[1] == bid:
+                    root = c
+                    break
+        if root is None:
+            continue
+        # walk every block reachable from the definition, substacks included
+        stack, found = [root.get("next")], set()
+        while stack:
+            cur = stack.pop()
+            while cur:
+                blk = blocks.get(cur)
+                if not blk:
+                    break
+                if blk.get("opcode") in YIELDING:
+                    found.add(blk["opcode"])
+                for key, val in (blk.get("inputs") or {}).items():
+                    if key.startswith("SUBSTACK") and len(val) > 1 and isinstance(val[1], str):
+                        stack.append(val[1])
+                cur = blk.get("next")
+        if found:
+            errs.append(f"{tn}: warp procedure '{proccode}' contains "
+                        f"{sorted(found)} - it will busy-spin and freeze the VM")
+
 # layer order sanity
 los = [t["layerOrder"] for t in proj["targets"]]
 if sorted(los) != list(range(len(los))):

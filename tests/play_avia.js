@@ -34,7 +34,8 @@ const R = [];
 const check = (n, c, e = '') => R.push([c ? 'PASS' : 'FAIL', n, e]);
 
 // ---------------------------------------------------------------- the rules
-const HOUSE = 0.96, PREC = 10000, GROWTH = 1.015;
+// must match src/tables4.py
+const HOUSE = 0.96, PREC = 10000, GROWTH = Math.pow(2, 1 / 84);
 const r2 = v => Math.round(v * 100) / 100;
 const landFor = u => r2(HOUSE * PREC / u);
 const multAtTick = t => r2(Math.pow(10, t * Math.log10(GROWTH)));

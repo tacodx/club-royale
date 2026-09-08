@@ -174,7 +174,10 @@ def clear_effects():
 
 
 def go_layer(where="front"):
-    return _b("looks_goto_front_back", {}, {"FRONT_BACK": [where, None]})
+    # NB: the opcode has no underscores between front/back. Scratch-vm skips
+    # unknown opcodes without warning, so a typo here is invisible: it cost
+    # every go-to-layer block in the project until v3.5.
+    return _b("looks_gotofrontback", {}, {"FRONT_BACK": [where, None]})
 
 
 def costume_number():
@@ -364,7 +367,7 @@ def list_contains(l, item):
 class Proc:
     """A custom block definition + call factory."""
 
-    def __init__(self, target, proccode, argnames, warp=True):
+    def __init__(self, target, proccode, argnames, warp=False):
         self.target = target
         self.proccode = proccode
         self.argnames = argnames
