@@ -74,3 +74,7 @@ something the logic tests cannot see, because they fire click handlers directly.
 `CLAUDE.md` is the entry point. Read `docs/PITFALLS.md` before touching block
 logic — it documents the Scratch execution behaviour that has caused real bugs
 here, including two that shipped.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
