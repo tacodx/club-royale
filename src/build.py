@@ -161,7 +161,7 @@ digitChars = p.lst("digitChars",
 
 SCREENS = {"lobby": 0, "openSlots": 1, "openPlinko": 2, "openMines": 3,
            "openBJ": 4, "openRoulette": 5, "openStairs": 6,
-           "openDuck": 7, "openAvia": 8}
+           "openDuck": 7, "openCrash": 8}
 
 # convenience reporters
 ROWS = lambda: item_of(rowCounts, rowsIdx)
@@ -985,7 +985,7 @@ menu = p.sprite("MenuTile")
 for nm, f in [("slots", "lt_slots"), ("plinko", "lt_plinko"),
               ("mines", "lt_mines"), ("bj", "lt_bj"),
               ("roul", "lt_roulette"), ("stairs", "lt_stairs"),
-              ("duck", "lt_duck"), ("avia", "lt_avia")]:
+              ("duck", "lt_duck"), ("crash", "lt_crash")]:
     C(menu, nm, f)
 menu.visible = False
 mIdx = menu.local_var("mIdx", 0)
@@ -1015,7 +1015,7 @@ menu.script(
         if_(eq(mIdx, 5), broadcast(p, "openRoulette")),
         if_(eq(mIdx, 6), broadcast(p, "openStairs")),
         if_(eq(mIdx, 7), broadcast(p, "openDuck")),
-        if_(eq(mIdx, 8), broadcast(p, "openAvia"))),
+        if_(eq(mIdx, 8), broadcast(p, "openCrash"))),
 )
 
 # ===================================================== chrome
@@ -1103,7 +1103,7 @@ for nm, file_pfx, count, var, xx, scr, guard in [
 act = p.sprite("ActionBtn")
 for nm, f in [("spin", "btn_spin"), ("drop", "btn_drop"),
               ("start", "btn_start"), ("deal", "btn_deal"),
-              ("go", "btn_go"), ("fly", "btn_fly")]:
+              ("go", "btn_go"), ("fly", "btn_launch")]:
     C(act, nm, f)
 act.visible = False
 act.script(
@@ -1690,114 +1690,119 @@ dctl.script(
 )
 
 
-# ===================================================== AVIAMASTERS
-# A crash game: the landing point is drawn once at take-off, the multiplier
-# climbs, and the round ends when it reaches that point. Deciding where the
-# plane ditches before it moves is what makes the payouts provable; a per-frame
-# roll would tie correctness to timing (CLAUDE.md).
+# ===================================================== CRASH
+# A rocket climbs and the multiplier runs with it; bail out before it goes.
+# The point at which it goes is drawn once, at launch, from the standard crash
+# distribution P(fail >= x) = 0.96 / x - so every cash-out point returns the
+# same, and nothing depends on frame timing (CLAUDE.md).
 #
-# `busy` deliberately stays 0 for the whole flight - bailing out mid-animation
-# is the entire game, so CASH OUT must remain live.
-SEA_HZ = AV4.HORIZON
-PX0, PY0 = AV4.PLANE_X0, AV4.PLANE_Y0
-PX1, PY1 = AV4.PLANE_X1, AV4.PLANE_Y1
+# `busy` deliberately stays 0 for the whole climb: bailing out mid-animation is
+# the entire game, so CASH OUT must remain live.
+PADY = AV4.PAD_Y
+PX0, PY0 = AV4.ROCK_X0, AV4.ROCK_Y0
+PX1, PY1 = AV4.ROCK_X1, AV4.ROCK_Y1
 LOGG = T4["logGrowth"]
 PRECN = T4["prec"]
 
-sea = p.sprite("SeaPanel")
-C(sea, "sea", "avsea")
-sea.x, sea.y, sea.visible = 0, 0, False
-sea.script(when_flag(), goto(0, 0), go_layer("back"))
-sea.script(when_flag(), vis([8], [go_layer("back")]))
+sky = p.sprite("SkyPanel")
+C(sky, "sky", "crsky")
+sky.x, sky.y, sky.visible = 0, 0, False
+sky.script(when_flag(), goto(0, 0), go_layer("back"))
+sky.script(when_flag(), vis([8], [go_layer("back")]))
 
-# --- ships riding the swell, purely scenic
-ship = p.sprite("AvShip")
-for n in range(1, 3):
-    C(ship, f"s{n}", f"avship{n}")
-ship.visible = False
-sIdx2 = ship.local_var("sIdx2", 0)
-sX = ship.local_var("sX", 0)
-ship.script(when_flag(), hide(), set_var(sIdx2, 0),
-            repeat(3, change_var(sIdx2, 1), clone()), set_var(sIdx2, 0))
-ship.script(
+# --- drifting stars, to give the climb some speed
+spark = p.sprite("Spark")
+for n in range(1, 4):
+    C(spark, f"s{n}", f"crspark{n}")
+spark.visible = False
+kIdx = spark.local_var("kIdx", 0)
+kY = spark.local_var("kY", 0)
+kX = spark.local_var("kX", 0)
+spark.script(when_flag(), hide(), set_var(kIdx, 0),
+             repeat(6, change_var(kIdx, 1), clone()), set_var(kIdx, 0))
+spark.script(
     when_clone(),
-    switch_costume_r(add(mod(sIdx2, 2), 1), "s1"),
-    set_var(sX, sub(mul(sIdx2, 130), 190)),
-    set_size(add(76, mul(sIdx2, 8))),
-    set_effect("ghost", 30),
+    switch_costume_r(add(mod(kIdx, 3), 1), "s1"),
+    set_var(kX, sub(mul(kIdx, 64), 190)),
+    set_var(kY, sub(mul(kIdx, 33), 95)),
+    set_effect("ghost", 45),
     forever(
         if_else(eq(screen, 8),
                 [show(),
-                 change_var(sX, -0.4),
-                 if_(lt(sX, -196), set_var(sX, 196)),
-                 goto(sX, add(AV4.SHIP_Y, mul(sIdx2, 6)))],
-                [hide()]),
-        ),
+                 # nearer stars fall faster; the rocket climbs, so they descend
+                 change_var(kY, sub(-0.5, mul(mod(kIdx, 3), 0.45))),
+                 if_(lt(kY, -98), set_var(kY, 98)),
+                 goto(kX, kY)],
+                [hide()])),
 )
 
-# --- the seaplane
-plane = p.sprite("Plane")
-for n in range(1, 4):
-    C(plane, f"p{n}", f"avplane{n}")
-plane.x, plane.y, plane.visible = PX0, PY0, False
-pProg = plane.local_var("pProg", 0)
-plane.script(when_flag(), goto(PX0, PY0), switch_costume("p1"))
-plane.script(when_flag(), vis([8]))
-plane.script(
+# --- the rocket
+rock = p.sprite("Rocket")
+for n in range(1, 5):
+    C(rock, f"r{n}", f"crrocket{n}")
+rock.x, rock.y, rock.visible = PX0, PY0, False
+rProg = rock.local_var("rProg", 0)
+rock.script(when_flag(), goto(PX0, PY0), switch_costume("r1"))
+rock.script(when_flag(), vis([8]))
+rock.script(
     when_bc(p, "avReset"),
     if_(eq(screen, 8),
-        go_layer("front"), switch_costume("p1"), clear_effects(),
-        goto(PX0, PY0)),
+        go_layer("front"), switch_costume("r1"), clear_effects(),
+        set_size(100), goto(PX0, PY0)),
 )
-plane.script(
+rock.script(
     when_bc(p, "avFly"),
     if_(eq(screen, 8),
-        go_layer("front"), switch_costume("p2"),
-        # log10 of the multiplier, normalised so 100x is a full climb
-        set_var(pProg, mathop("log", mult)),
-        if_(gt(pProg, 1), set_var(pProg, 1)),
-        if_(lt(pProg, 0), set_var(pProg, 0)),
-        goto(add(PX0, mul(PX1 - PX0, pProg)),
-             add(PY0, mul(PY1 - PY0, pProg)))),
+        go_layer("front"),
+        # log10 of the multiplier, normalised so 10x is a full climb
+        set_var(rProg, mathop("log", mult)),
+        if_(gt(rProg, 1), set_var(rProg, 1)),
+        if_(lt(rProg, 0), set_var(rProg, 0)),
+        # full thrust once it is really moving
+        if_else(gt(rProg, 0.35), [switch_costume("r3")], [switch_costume("r2")]),
+        goto(add(PX0, mul(PX1 - PX0, rProg)),
+             add(PY0, mul(PY1 - PY0, rProg)))),
 )
-plane.script(
+rock.script(
     when_bc(p, "avDitch"),
     if_(eq(screen, 8),
-        switch_costume("p3"),
-        gl(0.45, xpos(), SEA_HZ - 16),
-        set_effect("ghost", 45)),
+        switch_costume("r4"),
+        gl(0.45, add(xpos(), 26), sub(ypos(), 54)),
+        set_effect("ghost", 55)),
 )
 
-# The splash lands where the plane does. Scratch sprites cannot read each
-# other's position through this DSL, so it recomputes the same x from `mult`,
+# The burst lands where the rocket does. Sprites cannot read each other's
+# position through this DSL, so it recomputes the same point from `mult`,
 # which is pinned to avLand by the time avDitch fires.
-spl = p.sprite("Splash")
-C(spl, "sp", "avsplash")
-spl.visible = False
-sProg = spl.local_var("sProg", 0)
-spl.script(when_flag(), hide())
-spl.script(
+bst = p.sprite("Burst")
+C(bst, "b", "crburst")
+bst.visible = False
+bProg = bst.local_var("bProg", 0)
+bst.script(when_flag(), hide())
+bst.script(
     when_bc(p, "avDitch"),
     if_(eq(screen, 8),
-        set_var(sProg, mathop("log", mult)),
-        if_(gt(sProg, 1), set_var(sProg, 1)),
-        if_(lt(sProg, 0), set_var(sProg, 0)),
-        goto(add(PX0, mul(PX1 - PX0, sProg)), SEA_HZ - 10),
-        go_layer("front"), show(),
-        wait(0.9), hide()),
+        set_var(bProg, mathop("log", mult)),
+        if_(gt(bProg, 1), set_var(bProg, 1)),
+        if_(lt(bProg, 0), set_var(bProg, 0)),
+        goto(add(PX0, mul(PX1 - PX0, bProg)),
+             add(PY0, mul(PY1 - PY0, bProg))),
+        go_layer("front"), set_size(70), show(),
+        repeat(6, change_size(14), wait(0.02)),
+        wait(0.5), hide()),
 )
-spl.script(when_bc(p, "avReset"), hide())
-spl.script(when_bc(p, "screenChanged"), hide())
+bst.script(when_bc(p, "avReset"), hide())
+bst.script(when_bc(p, "screenChanged"), hide())
 
 # --- the round
-avc = p.sprite("AvCtrl")
+avc = p.sprite("CrashCtrl")
 C(avc, "blank", "msg_blank")
 avc.visible = False
 avc.script(when_flag(), hide())
 
 # Capturing the multiplier and paying happens inside one warped procedure, so
 # a cash-out cannot land between reading `mult` and crediting the win.
-do_cash = Proc(avc, "avia cash", [], warp=True)
+do_cash = Proc(avc, "crash cash", [], warp=True)
 define(avc, do_cash,
        if_(and_(eq(screen, 8), eq(roundOn, 1)),
            set_var(avAt, mult),
@@ -1818,7 +1823,7 @@ avc.script(
             [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
              set_var(avCashed, 0), set_var(avTick, 0), set_var(mult, 1),
              set_var(avAt, 0),
-             # draw where it ditches, once, before anything moves
+             # draw where it fails, once, before anything moves
              set_var(avU, rand(1, PRECN)),
              set_var(avLand, div(round_(mul(div(mul(T4["house"], PRECN), avU),
                                             100)), 100)),
@@ -1851,6 +1856,7 @@ avc.script(
              set_var(mult, 1), set_var(busy, 0),
              broadcast(p, "avReset")])),
 )
+
 
 out = str(BUILD / "ClubRoyale_fast.sb3") if FAST else str(DIST / "ClubRoyale.sb3")
 os.makedirs(os.path.dirname(out), exist_ok=True)

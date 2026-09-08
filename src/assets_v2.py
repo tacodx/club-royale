@@ -332,30 +332,33 @@ def ic_duck(img, c):
     _gold(img, f)
 
 
-def ic_avia(img, c):
-    """A plane climbing away over the water, with its trail behind it."""
+def ic_crash(img, c):
+    """A rocket climbing away, trailing exhaust."""
     x, y = c
 
     def f(d):
-        # horizon and a low sun
-        d.line([(x - 17 * SC, y + 12 * SC), (x + 17 * SC, y + 12 * SC)],
-               fill=(255, 255, 255, 110), width=2)
-        d.arc([x + 2 * SC, y + 6 * SC, x + 14 * SC, y + 18 * SC], 180, 360,
-              fill=(255, 255, 255, 130), width=2)
-        # climbing trail, fading back down to the left
-        for i, (tx, ty, a) in enumerate([(-14, 9, 90), (-10, 5, 130),
-                                         (-6, 1, 175)]):
-            d.ellipse([x + tx * SC - 1.4 * SC, y + ty * SC - 1.4 * SC,
-                       x + tx * SC + 1.4 * SC, y + ty * SC + 1.4 * SC],
+        # exhaust trail, fading back down to the left
+        for tx, ty, a in [(-15, 12, 80), (-11, 8, 125), (-7, 4, 175)]:
+            d.ellipse([x + tx * SC - 1.5 * SC, y + ty * SC - 1.5 * SC,
+                       x + tx * SC + 1.5 * SC, y + ty * SC + 1.5 * SC],
                       fill=(255, 255, 255, a))
-        # the aircraft: a swept delta pointing up and to the right
-        d.polygon([(x + 13 * SC, y - 12 * SC),     # nose
-                   (x + 5 * SC, y - 2 * SC),
-                   (x - 3 * SC, y - 1 * SC),       # port wing tip
-                   (x + 2 * SC, y - 6 * SC),
-                   (x - 1 * SC, y - 10 * SC),      # tail
-                   (x + 5 * SC, y - 8 * SC)],
+        # body, nose up and to the right
+        d.polygon([(x + 13 * SC, y - 13 * SC),      # nose
+                   (x + 6 * SC, y - 9 * SC),
+                   (x - 5 * SC, y + 2 * SC),
+                   (x - 1 * SC, y + 6 * SC),
+                   (x + 10 * SC, y - 5 * SC)],
                   fill=(255, 255, 255, 250))
+        # fins
+        d.polygon([(x - 5 * SC, y + 2 * SC), (x - 9 * SC, y + 1 * SC),
+                   (x - 3 * SC, y + 6 * SC)], fill=(255, 255, 255, 235))
+        d.polygon([(x - 1 * SC, y + 6 * SC), (x - 2 * SC, y + 10 * SC),
+                   (x + 3 * SC, y + 4 * SC)], fill=(255, 255, 255, 235))
+        # a couple of stars
+        for sx, sy in [(-13, -9), (8, 9)]:
+            d.ellipse([x + sx * SC - 1.2 * SC, y + sy * SC - 1.2 * SC,
+                       x + sx * SC + 1.2 * SC, y + sy * SC + 1.2 * SC],
+                      fill=(255, 255, 255, 150))
 
     _gold(img, f)
 
@@ -381,7 +384,7 @@ def build():
     lobby_tile("lt_roulette", "ROULETTE", ic_roulette)
     lobby_tile("lt_stairs", "STAIRS", ic_stairs)
     lobby_tile("lt_duck", "DUCK ROAD", ic_duck)
-    lobby_tile("lt_avia", "AVIAMASTERS", ic_avia)
+    lobby_tile("lt_crash", "CRASH", ic_crash)
 
 
 if __name__ == "__main__":

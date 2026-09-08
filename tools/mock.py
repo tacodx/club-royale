@@ -154,25 +154,26 @@ def duck(lane=5, egg=True):
     chrome(c); return c
 
 
-def avia(mult="4.86", flying=True):
+def crash(mult="4.86", flying=True):
     import sys, math
     sys.path.insert(0, str(ROOT / "src"))
     import assets_v4 as AV4
     c = stage()
-    put(c, "avsea", 0, 0)
-    for i, (sn, sx) in enumerate([("avship1", -160), ("avship2", 20),
-                                  ("avship1", 170)], 1):
-        put(c, sn, sx, AV4.SHIP_Y + i * 6, size=76 + i * 8, ghost=0.30)
-    prog = min(1.0, math.log10(float(mult)) / 2) if flying else 0.0
-    px = AV4.PLANE_X0 + (AV4.PLANE_X1 - AV4.PLANE_X0) * prog
-    py = AV4.PLANE_Y0 + (AV4.PLANE_Y1 - AV4.PLANE_Y0) * prog
-    put(c, "avplane2" if flying else "avplane1", px, py)
+    put(c, "crsky", 0, 0)
+    for i, (sn, sx, sy) in enumerate([("crspark3", -120, 40), ("crspark2", 30, -20),
+                                      ("crspark1", 150, 70), ("crspark2", -60, -60)], 1):
+        put(c, sn, sx, sy, ghost=0.45)
+    prog = min(1.0, math.log10(float(mult))) if flying else 0.0
+    rx = AV4.ROCK_X0 + (AV4.ROCK_X1 - AV4.ROCK_X0) * prog
+    ry = AV4.ROCK_Y0 + (AV4.ROCK_Y1 - AV4.ROCK_Y0) * prog
+    put(c, "crrocket3" if prog > 0.35 else ("crrocket2" if flying else "crrocket1"),
+        rx, ry)
     dig(c, mult + "x", AV4.MULT_XY[0], AV4.MULT_XY[1], AV4.MULT_GAP)
     betbar(c); put(c, "sel_auto3", -45, -152)
     if flying:
         put(c, "btn_cashout", 158, -152)
     else:
-        put(c, "btn_fly", 52, -152)
+        put(c, "btn_launch", 52, -152)
     chrome(c); return c
 
 
@@ -232,8 +233,8 @@ SCREENS = {
     "mines": mines, "stairs": stairs,
     "duck_road": lambda: duck(5, True),
     "duck_start": lambda: duck(0, False),
-    "avia_flight": lambda: avia("4.86", True),
-    "avia_idle": lambda: avia("1.00", False),
+    "crash_flight": lambda: crash("4.86", True),
+    "crash_idle": lambda: crash("1.00", False),
     "roulette_bets": lambda: roulette(False),
     "roulette_spin": lambda: roulette(True),
     "blackjack_idle": lambda: blackjack("idle"),

@@ -56,7 +56,7 @@ Bottom bar x positions, shared across games:
 ```
 -205 BetMinus   -152 BetPlaque   -99 BetPlus
  -45/-40 selector 1     24 selector 2
-  52 START (mines/stairs) / GO (duck road) / FLY (aviamasters)
+  52 START (mines/stairs) / GO (duck road) / LAUNCH (crash)
   75 SPIN/DEAL   110 DROP/SPIN   158 CASH OUT
 blackjack: -150 HIT  -50 STAND  50 DOUBLE  150 SPLIT
            -60 INSURE  60 NO
@@ -68,7 +68,7 @@ blackjack action buttons.
 ## Screen routing
 
 `screen` holds 0–8: lobby, slots, plinko, mines, blackjack, roulette, stairs,
-duck road, aviamasters.
+duck road, crash.
 The stage has one `when I receive` per screen that sets `screen`, resets
 per-round state and then broadcasts `screenChanged`.
 
@@ -104,8 +104,8 @@ Scratch has no 2-D lists.
 | `duckMults` | 2 x 4 blocks of 12 | `(dkMode-1)*12 + dkLane + 48*dkGot` |
 | `rBets` | 49 slots | 1 = number 0, 2–37 = numbers 1–36, 38–49 = outside bets |
 
-Aviamasters needs no table: `src/tables4.py` only fixes the constants and
-asserts the distribution, because the landing point is sampled directly as
+Crash needs no table: `src/tables4.py` only fixes the constants and asserts
+the distribution, because the failure point is sampled directly as
 `HOUSE * PREC / rand(1, PREC)`.
 
 `src/tables3.py` solves Duck Road as `HOUSE / (p**n * bonus(n))`, where
@@ -132,7 +132,7 @@ costume order:
 | 1 | 7 | chips, formatted | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
 | 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
-| 9 | 8 | multiplier + `x` | centre of the sea, at 170% (aviamasters) |
+| 9 | 8 | multiplier + `x` | centre of the sky, at 170% (crash) |
 | 4 | 2 | roulette result | under the wheel |
 | 5 | 6 | roulette stake | top bar |
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |

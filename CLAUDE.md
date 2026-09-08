@@ -99,13 +99,13 @@ src/
   assets_v2.py   roulette layout + wheel, stairs, lobby tiles
   assets_v3.py   duck road: road panel, duck, traffic, lane ladder, egg
                  (owns the lane geometry build.py positions sprites from)
-  assets_v4.py   aviamasters: sea and sky, seaplane, ships, splash
+  assets_v4.py   crash: night sky, launch gantry, rocket, burst
                  (likewise owns the flight-path geometry)
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
   tables3.py     duck road (4 modes) solver, base + golden-egg ladders
-  tables4.py     aviamasters crash distribution + climb constants
+  tables4.py     crash distribution + climb constants
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
@@ -115,7 +115,7 @@ tests/
   play_games.js       roulette (all bet types) + stairs (all 5 modes)
   play_core.js        slots, plinko (9 tables), mines (4 tables), navigation
   play_duck.js        duck road: table vs an independent solve, every hop
-  play_avia.js        aviamasters: landing point, climb, cash-out, auto
+  play_crash.js       crash: failure point, climb, cash-out, auto
 tools/
   mock.py        composite every screen at exact sprite coordinates
 ```
@@ -131,7 +131,7 @@ tools/
 | Roulette | 97.30% | European single zero; every bet type returns exactly 36/37 |
 | Stairs | 96% RTP | 9 rows, 5 modes from 4-tile/1-bomb to 4-tile/3-bomb |
 | Duck Road | 96% RTP | 12 lanes, 4 modes; 25% of runs hide a 3x golden egg |
-| Aviamasters | 96% RTP | crash; landing point drawn at take-off, up to 9600x, auto cash-out |
+| Crash | 96% RTP | rocket climb; failure point drawn at launch, up to 9600x, auto cash-out |
 
 ## Known limitations
 

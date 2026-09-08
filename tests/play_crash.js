@@ -1,4 +1,4 @@
-// Aviamasters: flies the plane headlessly and checks every landing and payout
+// Crash: flies the rocket headlessly and checks every landing and payout
 // against an independent implementation of the crash rules.
 //
 // The landing point is drawn once at take-off, so it can be verified exactly
@@ -78,10 +78,10 @@ async function bootSettle(cap = 6000) {
   await bootSettle();
 
   check('boot: 8 lobby tiles', cl('MenuTile').length === 8, 'got ' + cl('MenuTile').length);
-  check('boot: 3 ships', cl('AvShip').length === 3, 'got ' + cl('AvShip').length);
+  check('boot: 6 drifting stars', cl('Spark').length === 6, 'got ' + cl('Spark').length);
   const big = cl('Digit').filter(t => Number(lv(t, 'dField')) === 9).length;
   // 8 slots: "9600.00x" is the widest the readout can ever get
-  check('boot: 8-slot crash readout', big === 8, 'got ' + big);
+  check('boot: 8-slot multiplier readout', big === 8, 'got ' + big);
   const clones = vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
   check('boot: clone budget under 300', clones < 300, clones + ' clones');
 
@@ -92,10 +92,10 @@ async function bootSettle(cap = 6000) {
   const tile = n => cl('MenuTile').find(t => Number(lv(t, 'mIdx')) === n);
   click(tile(8));
   await until(() => num('screen') === 8, 'nav avia');
-  check('nav: aviamasters', num('screen') === 8, 'screen ' + num('screen'));
+  check('nav: crash', num('screen') === 8, 'screen ' + num('screen'));
   check('idle: readout shows a ready 1x', num('mult') === 1, 'mult ' + num('mult'));
 
-  const act = sp('ActionBtn'), cash = sp('CashoutBtn'), plane = sp('Plane');
+  const act = sp('ActionBtn'), cash = sp('CashoutBtn'), plane = sp('Rocket');
   setv('chips', 100000000);
   setv('bet', 100);
   setv('avAuto', 1);                       // manual first
@@ -218,9 +218,9 @@ async function bootSettle(cap = 6000) {
     await until(settled, 'settle after ui', 4000);
   }
 
-  check('ui: FLY hidden in flight', flyHidden, flyHidden ? 'hidden' : 'still shown');
+  check('ui: LAUNCH hidden in flight', flyHidden, flyHidden ? 'hidden' : 'still shown');
   check('ui: CASH OUT live in flight', cashShown, cashShown ? 'shown' : 'missing');
-  check('ui: the plane climbs', moved,
+  check('ui: the rocket climbs', moved,
         moved ? `moves with the multiplier (${climbTried} flights)` : 'never moved');
   check('ui: crash readout matches the multiplier', readoutBad === 0, readoutBad + ' faults');
 
@@ -268,7 +268,7 @@ async function bootSettle(cap = 6000) {
         autoBad ? autoNote : `${autoFired} auto cash-outs across 1.5x/2x/5x`);
 
   vm.stopAll();
-  console.log('\n================ AVIAMASTERS ================');
+  console.log('\n================ CRASH ================');
   for (const [s, n, e] of R) console.log(`${s}  ${n}${e ? '   [' + e + ']' : ''}`);
   const bad = R.filter(x => x[0] === 'FAIL').length;
   console.log(`\n${R.length - bad}/${R.length} passed`);

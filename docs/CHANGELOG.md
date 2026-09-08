@@ -3,6 +3,26 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.7
+
+**Aviamasters was never Aviamasters.** It was built from "crash-style" rather
+than from the real game, and reported back as such. Researching BGaming's Avia
+Masters shows it is a different animal: a propeller plane launches from an
+aircraft carrier and flies a random route collecting floating orbs - numbers
+(+1, +2, +5, +10) add to the multiplier and multiplier orbs (x2..x5) multiply
+it - while rockets HALVE it without ending the round. You win by landing on the
+far carrier; ditching in the water loses the stake. 97% RTP, max x250.
+
+So the game that shipped is now simply **Crash**, with its own identity rather
+than a borrowed one: a cold indigo starfield instead of the oxblood sea, a
+launch gantry drawn into the panel, and a gold rocket that climbs on exhaust
+and tumbles when the run ends. `SeaPanel` -> `SkyPanel`, `Plane` -> `Rocket`,
+the scenic ships -> drifting stars with parallax, `Splash` -> `Burst`, FLY ->
+LAUNCH, and `tests/play_avia.js` -> `tests/play_crash.js`.
+
+The maths is untouched and still exact: the failure point is drawn once at
+launch from P(fail >= x) = 0.96 / x.
+
 ## v3.6
 
 Reported from play: Duck Road froze on every hop, Aviamasters ran in slow
