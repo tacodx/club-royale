@@ -20,7 +20,7 @@ T = A11.T
 T2 = json.load(open(BUILD / "tables2.json"))
 ROWC, ROWSP, ROWHS = A11.ROWCOUNT, A11.ROWSP, A11.ROWHS
 BKV = A11.BUCKET_VALS
-DCH = list("0123456789") + [".", ",", "", "x"]   # "" is the blank, d13
+DCH = list("0123456789") + [".", ",", "", "x", "M", "B"]  # "" is the blank, d13
 
 
 def stage():
@@ -45,7 +45,7 @@ def dig(c, s, cx, y, gap=16, mode="C"):
         put(c, f"d{DCH.index(ch) + 1}", x, y)
 
 
-def chrome(c, chips="12450"):
+def chrome(c, chips="12,450"):
     dig(c, chips, -166, 163, 15, "L")
     put(c, "btn_back", 192, 163)
 

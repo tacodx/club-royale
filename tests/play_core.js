@@ -30,9 +30,10 @@ function readout(field) {
     .filter(t => Number(lv(t, 'dField')) === field && t.visible)
     .sort((a, b) => Number(lv(a, 'dSlot')) - Number(lv(b, 'dSlot')));
   return parts.map(t => {
-    const nm = t.getCostumes()[t.currentCostume].name;   // d1..d13
+    const nm = t.getCostumes()[t.currentCostume].name;   // d1..d16
     const i = Number(nm.slice(1));
-    return i <= 10 ? String(i - 1) : (i === 11 ? '.' : (i === 12 ? ',' : ''));
+    const GLYPH = { 11: '.', 12: ',', 13: '', 14: 'x', 15: 'M', 16: 'B' };
+    return i <= 10 ? String(i - 1) : (GLYPH[i] !== undefined ? GLYPH[i] : '?');
   }).join('');
 }
 
@@ -66,7 +67,30 @@ async function bootSettle(vm, sleep, cap = 6000) {
     cl('MineTile').length === 25 && cl('Card').length === 18 &&
     cl('Digit').length === 40 && cl('Bucket').length === 17,
     `menu ${cl('MenuTile').length} reel ${cl('Reel').length} mine ${cl('MineTile').length} card ${cl('Card').length} digit ${cl('Digit').length} bucket ${cl('Bucket').length}`);
-  check('digits: chips readout matches', readout(1) === '1000', 'showing ' + readout(1));
+  check('digits: chips readout matches', readout(1) === '1,000', 'showing ' + readout(1));
+
+  // The bankroll used to render by character index into 7 slots, so anything
+  // over 9,999,999 silently lost its tail: 12,582,900 displayed as "1258290",
+  // a plausible figure ten times too small. It is formatted now, and must
+  // never exceed the 7 slots that exist.
+  const fmt = n => n < 1000 ? String(n)
+    : n < 1e6 ? Math.floor(n / 1000) + ',' + String(n % 1000).padStart(3, '0')
+    : n < 1e9 ? String(Math.round(n / 1e4) / 100) + 'M'
+    : String(Math.round(n / 1e7) / 100) + 'B';
+  let wide = 0, wrong = 0, firstWrong = '';
+  for (const v of [7, 999, 1000, 1005, 1050, 12450, 999999,
+                   1000000, 1234567, 12582900, 99999999, 999999999,
+                   1000000000, 1258290000, 15690050000]) {
+    setv('chips', v);
+    let shown = readout(1);
+    for (let i = 0; i < 40 && shown !== fmt(v); i++) { await sleep(12); shown = readout(1); }
+    if (shown !== fmt(v)) { wrong++; firstWrong = firstWrong || `${v} -> "${shown}", expected "${fmt(v)}"`; }
+    if (shown.length > 7) wide++;
+  }
+  check('digits: bankroll never truncates', wrong === 0, wrong ? firstWrong : '15 magnitudes exact');
+  check('digits: bankroll fits its 7 slots', wide === 0, wide + ' too wide');
+  setv('chips', 1000);
+  await sleep(60);
 
   const tile = n => cl('MenuTile').find(t => Number(lv(t, 'mIdx')) === n);
   const act = sp('ActionBtn'), back = sp('BackBtn');

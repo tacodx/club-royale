@@ -104,6 +104,8 @@ didSplit= p.var("didSplit", 0)
 bjPhase = p.var("bjPhase", 0)
 canDbl  = p.var("canDbl", 0)
 canSpl  = p.var("canSpl", 0)
+chipsTxt= p.var("chipsTxt", "1000")   # formatted bankroll, <= 7 chars
+cTmp    = p.var("cTmp", 0)        # scratch for the formatter only
 avU     = p.var("avU", 0)         # the raw landing draw
 avLand  = p.var("avLand", 0)      # multiplier the plane ditches at
 avTick  = p.var("avTick", 0)      # climb counter
@@ -153,6 +155,9 @@ duckMults = p.lst("duckMults", T3["flat"])   # 96: base 1-48, egg 49-96
 duckPct   = p.lst("duckPct", [str(v) for v in T3["pct"]])
 duckX     = p.lst("duckX", [str(v) for v in AV3.LANE_X])
 avAutoVals = p.lst("avAutoVals", [f"{v:g}" for v in T4["auto"]])
+# index into this list == the Digit costume number, so a glyph is one lookup
+digitChars = p.lst("digitChars",
+                   [str(d) for d in range(10)] + [".", ",", "", "x", "M", "B"])
 
 SCREENS = {"lobby": 0, "openSlots": 1, "openPlinko": 2, "openMines": 3,
            "openBJ": 4, "openRoulette": 5, "openStairs": 6,
@@ -221,6 +226,32 @@ for name, num in SCREENS.items():
 st.script(
     when_flag(),
     forever(
+        if_else(
+            lt(chips, 1000),
+            [set_var(chipsTxt, chips)],
+            [if_else(
+                lt(chips, 1000000),
+                # n,nnn - pad the remainder so 1,050 does not render as 1,50
+                [set_var(cTmp, mod(chips, 1000)),
+                 if_else(lt(cTmp, 10),
+                         [set_var(cTmp, join("00", cTmp))],
+                         [if_(lt(cTmp, 100), set_var(cTmp, join("0", cTmp)))]),
+                 set_var(chipsTxt,
+                         join(join(mathop("floor", div(chips, 1000)), ","),
+                              cTmp))],
+                [if_else(
+                    lt(chips, 1000000000),
+                    [set_var(chipsTxt,
+                             join(div(round_(div(chips, 10000)), 100), "M"))],
+                    [set_var(chipsTxt,
+                             join(div(round_(div(chips, 10000000)), 100),
+                                  "B"))])])]),
+    ),
+)
+
+st.script(
+    when_flag(),
+    forever(
         if_(and_(lt(chips, item_of(betLevels, 1)),
                  and_(eq(busy, 0), and_(eq(roundOn, 0), eq(ballsUp, 0)))),
             set_var(msgId, 10), SFX("lose"), wait(1.6),
@@ -240,7 +271,7 @@ def vis(screens, extra=None):
 
 # ===================================================== digits
 dig = p.sprite("Digit")
-for n in range(1, 15):
+for n in range(1, 17):
     C(dig, f"d{n}", f"d{n}")
 dig.visible = False
 dSlot = dig.local_var("dSlot", 0)
@@ -275,7 +306,7 @@ dig.script(
     go_layer("front"),
     if_(eq(dField, 9), set_size(170)),      # the crash readout is the headline
     forever(
-        if_(eq(dField, 1), set_var(dTxt, chips)),
+        if_(eq(dField, 1), set_var(dTxt, chipsTxt)),
         if_(eq(dField, 2), set_var(dTxt, bet)),
         if_(eq(dField, 3), set_var(dTxt, mult)),
         if_(eq(dField, 4), set_var(dTxt, rNum)),
@@ -328,10 +359,7 @@ dig.script(
                                                 div(sub(dLen, 1), 2)))),
                       AV4.MULT_XY[1])),
              set_var(tmp2, letter_of(dSlot, dTxt)),
-             if_else(eq(tmp2, "."), [switch_costume("d11")],
-                     [if_else(eq(tmp2, ","), [switch_costume("d12")],
-                              [if_else(eq(tmp2, "x"), [switch_costume("d14")],
-                                       [switch_costume_r(add(tmp2, 1), "d1")])])]),
+             switch_costume_r(item_num_of(digitChars, tmp2), "d1"),
              show()],
             [hide()])),
 )

@@ -121,13 +121,15 @@ returns exactly 36/37 by construction, asserted in `tables2.py`.
 ## Numeric display
 
 There are no Scratch variable monitors anywhere. Numbers are drawn with a
-`Digit` sprite carrying 14 costumes (`0`–`9`, `.`, `,`, blank, `x`) and 40
-clones split across nine fields. The `x` was appended *after* the blank so every
-costume index already in use kept its meaning:
+`Digit` sprite carrying 16 costumes (`0`–`9`, `.`, `,`, blank, `x`, `M`, `B`)
+and 40 clones split across nine fields. The last three were appended *after* the
+blank so every costume index already in use kept its meaning, and a glyph is
+picked with a single `item # of digitChars` lookup whose list order is the
+costume order:
 
 | Field | Slots | Shows | Where |
 |---|---|---|---|
-| 1 | 7 | chips | top-left, left-aligned |
+| 1 | 7 | chips, formatted | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
 | 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
 | 9 | 8 | multiplier + `x` | centre of the sea, at 170% (aviamasters) |
@@ -136,7 +138,10 @@ costume index already in use kept its meaning:
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |
 
 Each clone reads one character of its source string and positions itself from
-the string length, so numbers stay centred as they grow.
+the string length, so numbers stay centred as they grow. A clone renders its
+character *by index*, so a string longer than its field is silently truncated -
+the bankroll is formatted (`999,999` / `12.58M` / `1.26B`, never more than seven
+characters) rather than trusted to stay short.
 
 ## Sound
 

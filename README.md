@@ -63,7 +63,8 @@ something the logic tests cannot see, because they fire click handlers directly.
 
 - **No saving.** Scratch only persists via cloud variables, which need the
   project shared on scratch.mit.edu with a full Scratcher account.
-- Chips display has no thousands separator.
+- Bankrolls over a million are abbreviated (`12.58M`, `1.26B`) - the top bar
+  has room for seven characters.
 
 ## For contributors
 

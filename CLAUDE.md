@@ -74,6 +74,12 @@ correctness would depend on frame timing and could not be proven on the fast
 build - which is the guarantee the whole suite rests on. Real crash games work
 this way too.
 
+**A digit field can only render as many characters as it has clones.** Each
+clone draws one character *by index*, so a string longer than the field simply
+loses its tail - silently, and looking entirely plausible. The bankroll shipped
+this way for eight versions: 12,582,900 rendered as `1258290`. Format the value
+to fit the field rather than trusting it to be short.
+
 **Sprites driven by `forever` loops need a frame to catch up.** Button
 visibility and the digit readouts repaint from `forever` loops, so reading them
 in the same tick that `busy` clears gives you the *previous* frame. Three
@@ -132,7 +138,8 @@ tools/
 - **No persistence.** A refresh resets chips to 1000. Scratch only persists via
   cloud variables, which need the project shared on scratch.mit.edu, the user
   signed in, and a full Scratcher account. They also store numbers only.
-- **No `,` separators** in the chips readout. The digit sprite supports a comma
-  costume; nothing formats the number yet.
+- **The bankroll is abbreviated above a million** (`12.58M`, `1.26B`) rather
+  than shown in full. Seven digit slots is what the top bar has room for before
+  the readout runs into the MULT plaque at x=0.
 - **Slots is the weakest game.** Uniform reels, no paylines. A second theme
   would not fix that; weighted reel strips and real paylines would.

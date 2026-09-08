@@ -3,6 +3,25 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v3.4
+
+**The bankroll no longer lies.** Digit field 1 has seven slots and each clone
+renders one character *by index*, so anything longer lost its tail: 12,582,900
+displayed as `1258290` - a plausible figure ten times too small, with nothing on
+screen to say it was wrong. It had been that way since v1.
+
+Rather than widen the field (a thirteen-digit bankroll would run into the MULT
+plaque at x=0), the number is formatted so it can never exceed seven characters:
+`999` / `12,450` / `999,999` / `12.58M` / `1.26B`. That also closes the "no
+thousands separator" limitation the README has carried since v1.1.
+
+The digit sprite gained `M` and `B` costumes, and picking a glyph is now one
+`item # of digitChars` lookup instead of a five-deep if-chain - the list order
+is the costume order.
+
+`tests/play_core.js` checks fifteen magnitudes from 7 to 15,690,050,000 and
+asserts the readout never exceeds its seven slots.
+
 ## v3.3
 
 **Aviamasters.** An eighth game, and the first that is not turn-based: a
