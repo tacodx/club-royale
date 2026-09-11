@@ -79,10 +79,13 @@ branch is guarded on `roundOn` still being 1. Any second payout path needs the
 same guard.
 
 **Payout tables are solved, not hand-written.** `src/tables.py` through
-`src/tables5.py` compute every multiplier to a target house
+`src/tables6.py` compute every multiplier to a target house
 edge and assert the result. Change the target there; never edit a multiplier by
 hand. The assertions run against the *rounded* values that ship, not the exact
-ones, so what a player is paid is what was verified.
+ones, so what a player is paid is what was verified. Dice is the one game with
+no table - its threshold is dragged, so the multiplier is computed in the VM -
+and the same rule applies: `tables6.py` fixes the range and the precision and
+asserts the invariant across every reachable position.
 
 **Decide the outcome before you animate it.** Duck Road rolls the hop, then
 plays the traffic to match. If a collision decided the payout instead,
@@ -149,15 +152,17 @@ src/
                  big-multiplier readout position used by crash and aviamasters)
   assets_v5.py   aviamasters: dusk sky, two carriers, biplane, collectible orbs
   assets_v6.py   coin flip: felt, 12-frame coin, the payout ladder; dice: the
-                 0-100 rail and its ten mode/side costumes (owns both games'
-                 geometry, and writes build/geom6.json for the harnesses)
+                 0-100 rail, its two sliding bars and the frame that masks them
+                 (owns both games' geometry, and writes build/geom6.json so the
+                 harnesses measure against the numbers the art was drawn from)
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
   tables3.py     duck road (4 modes) solver, base + golden-egg ladders
   tables4.py     crash distribution + climb constants
   tables5.py     aviamasters orb mix + the per-slot ditch ramp
-  tables6.py     coin flip ladder + dice chances (both exact, no rounding)
+  tables6.py     coin flip ladder (exact, no rounding) + the dice range and
+                 precision, asserted over all 9401 slider positions
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
