@@ -68,8 +68,11 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('boot: 49 roulette spots', cl('RSpot').length === 49, 'got ' + cl('RSpot').length);
   check('boot: 36 stair tiles', cl('StairTile').length === 36, 'got ' + cl('StairTile').length);
   check('boot: 9 stair mult labels', cl('StairMult').length === 9);
-  check('boot: clone budget under 300',
-    vm.runtime.targets.length < 300, vm.runtime.targets.length + ' targets');
+  // Runtime.MAX_CLONES is checked against _cloneCounter, which only makeClone()
+  // increments - the sprite originals are not part of the budget, so count
+  // clones rather than targets (this read 298 of "300" with 65 originals in it).
+  const clones = vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
+  check('boot: clone budget under 300', clones < 300, clones + ' clones');
 
   // ================================================ ROULETTE
   click(tile(5)); await sleep(300);

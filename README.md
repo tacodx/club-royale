@@ -1,11 +1,12 @@
 # Club Royale
 
-An art-deco casino for **Scratch 3** — nine games, generated entirely from code.
+An art-deco casino for **Scratch 3** — eleven games, generated entirely from
+code.
 
-![nine games](docs/screens.png)
+![eleven games](docs/screens.png)
 
 Slots · Plinko · Mines · Blackjack · Roulette · Stairs · Duck Road · Crash ·
-Aviamasters
+Aviamasters · Coin Flip · Dice
 
 Nothing here was made in the Scratch editor. A Python compiler emits
 `project.json`, renders every image, synthesises every sound and zips the result
@@ -39,10 +40,14 @@ Requires Python 3 (pillow, numpy) and Node (scratch-vm).
 | Duck Road | 96% | 12 lanes, 4 modes, hidden 3x golden egg, up to 27,845x |
 | Crash | 96% | rocket climb, up to 9,600x, auto cash-out at 1.5x/2x/5x/10x |
 | Aviamasters | 96% | 14 orbs on the route, rockets halve, up to 250x |
+| Coin Flip | 96% | call a side, 12 rungs of 0.96 x 2^n, up to 3,932x |
+| Dice | 96% | roll 0.00-99.99 under or over, 5 chances from 80% to 1.92% |
 
-Every multiplier is solved to a target house edge by `src/tables.py`,
-`src/tables2.py`, `src/tables3.py`, `src/tables4.py` and `src/tables5.py`, and
-verified per-round by the test suite rather than statistically.
+Every multiplier is solved to a target house edge by `src/tables.py` through
+`src/tables6.py`, and verified per-round by the test suite rather than
+statistically. Coin Flip and Dice are the two that come out exact: their
+tables are integers over integers, so the 0.96 holds to the last bit at every
+rung, in every mode and on both sides.
 
 ## Verification
 
@@ -56,6 +61,8 @@ node tests/play_core.js      dist/ClubRoyale.sb3 40 6 8
 node tests/play_duck.js      dist/ClubRoyale.sb3 40
 node tests/play_crash.js     dist/ClubRoyale.sb3 20
 node tests/play_avia.js      dist/ClubRoyale.sb3 30
+node tests/play_coin.js      dist/ClubRoyale.sb3 24
+node tests/play_dice.js      dist/ClubRoyale.sb3 40
 node tests/overlap.js        dist/ClubRoyale.sb3
 ```
 

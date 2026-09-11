@@ -3,6 +3,58 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v4.0
+
+**Two more games: Coin Flip and Dice.** Eleven now.
+
+**Coin Flip** is a streak, not a single toss. Call heads or tails, and every
+correct call doubles the pot; one wrong call takes the stake. The ladder is
+`0.96 * 2^n` for twelve rungs, 1.92x to 3932.16x, and cashing out on any of
+them returns exactly 0.96 of the stake — the cut is taken on entry, so there
+is no rung worth holding out for. Unlike every other table in the project this
+one needs no rounding at all: `0.96 * 2^n` terminates at two decimals for
+every n, so `src/tables6.py` proves the edge in `Fraction` arithmetic instead
+of asserting it within a tolerance. `3932.16x` is eight characters, which is
+exactly what the big readout has slots for.
+
+**Dice** rolls 0.00–99.99 against a threshold, under or over. The roll is drawn
+as a whole number of hundredths out of 10,000 and every comparison is made on
+that integer, so what pays never depends on how a float prints. The five
+chances — 80%, 48%, 24%, 9.6%, 1.92% — were picked so that
+`chance x payout` is exactly 0.96 in every mode, which makes the check
+`wins * payout-in-hundredths == 10000 * 96` in integers. UNDER t and OVER
+(100 - t) are the same number of outcomes, so one table serves both sides.
+
+**The lobby is six across and five beneath.** Eleven tiles at 68x66. Nine fitted
+as five-over-four at 82x70, but six across would need 528 of the 480 stage, and
+three rows of 70 hang off the table felt in the backdrop — it runs from y 137
+down to y -125, which is two rows and no more. The tiles shrank instead, and the
+label padding shrank with them so the longest name still fits the octagon.
+
+**Neither game runs an animation script.** The coin repaints every frame from
+`cfSpin`/`cfSide` and the dice needle from `dcRolling`/`dcInt`. A `when I
+receive` spin would be restarted by the next flip (PITFALLS 2) and takes as many
+frames as it has steps, but under `FAST=1` a whole round finishes in one — so
+the coin could still be tumbling, or showing the previous flip, when the round
+that paid it was over. Rendering from state means the face on screen cannot
+disagree with the side that was paid, at either speed, and both harnesses assert
+on it.
+
+**Both games borrow the existing readout rather than adding digit clones.**
+Field 9 was crash's; it now carries the coin's pot and the dice roll too, and
+the two games cost two clones between them — the extra lobby tiles. Boot is 235
+of the 300, worst case 284 once roulette lays 49 chips.
+
+**Two clone-budget assertions were measuring the wrong number.**
+`play_blackjack.js` and `play_games.js` compared `runtime.targets.length`
+against 300, but Scratch's cap is on clones alone: `Runtime.MAX_CLONES` is
+checked against `_cloneCounter`, and `makeClone()` is the only thing that
+increments it — sprite originals are not part of the budget. With 65 originals
+in the count the reading was 298, two under a limit it was not actually
+approaching, and twelve new sprites took it to 312 while the real clone count
+moved 233 → 235. Both now count clones, as `play_duck.js` and `play_avia.js`
+always did.
+
 ## v3.9
 
 **Aviamasters, properly this time.** The ninth game, and the second attempt at

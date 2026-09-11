@@ -199,7 +199,9 @@ def stair_mults():
 
 
 # ========================================================= lobby v2
-LW, LH = 82, 70
+# 11 games. Five across was the nine-game lobby's top row; eleven need
+# six and five, which only fits the 448-wide table felt at this size.
+LW, LH = 68, 66
 
 
 def lobby_tile(name, label, icon):
@@ -220,9 +222,9 @@ def lobby_tile(name, label, icon):
     ld.polygon(chamfer_pts([8 * SC, 8 * SC, W - 3 - 8 * SC, H - 3 - 8 * SC],
                            11 * SC), outline=(255, 255, 255, 115), width=1)
     img = Image.alpha_composite(img, gold_fill(line))
-    icon(img, (W / 2, H * 0.355))
-    s, tr = fit(label, 12 * SC, 2.0 * SC, W - 30 * SC, floor=6)
-    tracked(img, (W / 2, H * 0.762), label, s, tr, anchor="mm")
+    icon(img, (W / 2, H * 0.37))
+    s, tr = fit(label, 10.5 * SC, 1.6 * SC, W - 24 * SC, floor=5)
+    tracked(img, (W / 2, H * 0.745), label, s, tr, anchor="mm")
     return save(img, name)
 
 

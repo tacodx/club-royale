@@ -79,7 +79,11 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('boot: 40 digit clones', cl('Digit').length === 40, 'got ' + cl('Digit').length);
   check('boot: sounds attached',
     vm.runtime.targets.reduce((a, t) => a + t.getSounds().length, 0) === 12);
-  check('boot: clone budget', vm.runtime.targets.length < 300, vm.runtime.targets.length);
+  // Runtime.MAX_CLONES is checked against _cloneCounter, which only makeClone()
+  // increments - the sprite originals are not part of the budget, so count
+  // clones rather than targets (this read 298 of "300" with 65 originals in it).
+  const clones = vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
+  check('boot: clone budget', clones < 300, clones + ' clones');
 
   click(tile(4)); await sleep(300);
   check('nav: blackjack', Number(gv('screen')) === 4);

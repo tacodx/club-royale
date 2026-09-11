@@ -7,6 +7,7 @@ import assets_v2 as AV2
 import assets_v3 as AV3
 import assets_v4 as AV4
 import assets_v5 as AV5
+import assets_v6 as AV6
 import json
 import sfx as SFXMOD
 
@@ -16,6 +17,7 @@ AV2.build()
 AV3.build()
 AV4.build()
 AV5.build()
+AV6.build()
 SFXMOD.build()
 T = AV.T
 from paths import BUILD, SFX_DIR, DIST
@@ -23,6 +25,7 @@ T2 = json.load(open(BUILD / "tables2.json"))
 T3 = json.load(open(BUILD / "tables3.json"))
 T4 = json.load(open(BUILD / "tables4.json"))
 T5 = json.load(open(BUILD / "tables5.json"))
+T6 = json.load(open(BUILD / "tables6.json"))
 
 FAST = os.environ.get("FAST") == "1"
 _rw = wait
@@ -132,6 +135,20 @@ dkRoll  = p.var("dkRoll", 0)      # the roll that decided it
 dkHit   = p.var("dkHit", 0)       # lane the duck was hit in
 bjA     = p.var("bjA", 0)
 bjB     = p.var("bjB", 0)
+cfCall  = p.var("cfCall", 1)      # 1 = heads, 2 = tails
+cfSide  = p.var("cfSide", 1)      # the side the flip came up
+cfStreak= p.var("cfStreak", 0)    # correct calls so far
+cfSpin  = p.var("cfSpin", 0)      # 1 while the coin is in the air
+cfAt    = p.var("cfAt", 0)        # multiplier captured on cash-out
+cfCashed= p.var("cfCashed", 0)
+dcMode  = p.var("dcMode", 3)      # 1..5 win chance
+dcSide  = p.var("dcSide", 1)      # 1 = under, 2 = over
+dcInt   = p.var("dcInt", 0)       # the roll, in hundredths: 0..9999
+dcFrac  = p.var("dcFrac", 0)      # scratch for the roll formatter only
+dcTxt   = p.var("dcTxt", "")      # the roll as it is displayed, "73.42"
+dcWon   = p.var("dcWon", 0)
+dcRolling = p.var("dcRolling", 0)
+dcShown = p.var("dcShown", 0)     # a roll has landed on this visit
 
 spotX   = p.lst("spotX", [str(v) for v in SPOTX])
 spotY   = p.lst("spotY", [str(v) for v in SPOTY])
@@ -173,6 +190,10 @@ amCum  = p.lst("amCum", [str(v) for v in T5["orbCum"]])
 amA    = p.lst("amA", [f"{v:g}" for v in T5["orbA"]])
 amB    = p.lst("amB", [f"{v:g}" for v in T5["orbB"]])
 amLog  = p.lst("amLog", [])   # orbs taken this round, for the harness
+coinMults = p.lst("coinMults", [f"{v:g}" for v in T6["coin"]])
+coinRungY = p.lst("coinRungY", [f"{v:g}" for v in AV6.RUNG_Y])
+diceWin   = p.lst("diceWin", [str(v) for v in T6["diceWin"]])
+diceMult  = p.lst("diceMult", [f"{v:g}" for v in T6["diceMult"]])
 # index into this list == the Digit costume number, so a glyph is one lookup
 digitChars = p.lst("digitChars",
                    [str(d) for d in range(10)] + [".", ",", "", "x", "M", "B"])
@@ -180,7 +201,7 @@ digitChars = p.lst("digitChars",
 SCREENS = {"lobby": 0, "openSlots": 1, "openPlinko": 2, "openMines": 3,
            "openBJ": 4, "openRoulette": 5, "openStairs": 6,
            "openDuck": 7, "openCrash": 8,
-           "openAvia": 9}
+           "openAvia": 9, "openCoin": 10, "openDice": 11}
 
 # convenience reporters
 ROWS = lambda: item_of(rowCounts, rowsIdx)
@@ -231,6 +252,12 @@ for name, num in SCREENS.items():
     if num == 9:
         extra = [set_var(mult, 1), set_var(amSlot, 0), set_var(amVal, 1),
                  set_var(amCashed, 0), set_var(amDown, 0)]
+    if num == 10:
+        extra = [set_var(mult, 1), set_var(cfSpin, 0), set_var(cfSide, 1)]
+    if num == 11:
+        extra = [set_var(mult, item_of(diceMult, dcMode)),
+                 set_var(dcRolling, 0), set_var(dcShown, 0),
+                 set_var(dcInt, 0), set_var(dcTxt, "")]
     st.script(
         when_bc(p, name),
         set_var(screen, num),
@@ -240,6 +267,7 @@ for name, num in SCREENS.items():
         set_var(stRow, 1), set_var(bjPhase, 0), set_var(didSplit, 0),
         set_var(dkLane, 0), set_var(dkEgg, 0), set_var(dkGot, 0),
         set_var(dkHit, 0),
+        set_var(cfStreak, 0), set_var(cfCashed, 0), set_var(dcWon, 0),
         delete_all(pHand2),
         extra,
         broadcast(p, "screenChanged"),
@@ -336,7 +364,11 @@ dig.script(
         if_(eq(dField, 6), set_var(dTxt, dealer)),
         if_(eq(dField, 7), set_var(dTxt, you)),
         if_(eq(dField, 8), set_var(dTxt, you2)),
-        if_(eq(dField, 9), set_var(dTxt, join(mult, "x"))),
+        # dice shows the roll it landed on where the others show a
+        # multiplier, so field 9 carries whichever the screen is about
+        if_(eq(dField, 9),
+            if_else(eq(screen, 11), [set_var(dTxt, dcTxt)],
+                    [set_var(dTxt, join(mult, "x"))])),
         set_var(dLen, length_of(dTxt)),
         if_else(
             all_of(
@@ -354,7 +386,8 @@ dig.script(
                     all_of(eq(dField, 8), eq(screen, 4), gt(bjPhase, 0),
                            eq(didSplit, 1)),
                     all_of(eq(dField, 9),
-                           any_of(eq(screen, 8), eq(screen, 9))))),
+                           any_of(eq(screen, 8), eq(screen, 9),
+                                  eq(screen, 10), eq(screen, 11))))),
             [if_(eq(dField, 1), goto(add(-166, mul(15, sub(dSlot, 1))), 163)),
              if_(eq(dField, 2),
                  goto(add(-152, mul(14, sub(sub(dSlot, 1),
@@ -614,7 +647,9 @@ cash.script(
                     and_(eq(busy, 0), gt(dkLane, 0))),
                and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0)),
                and_(and_(eq(screen, 9), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(amSlot, 0)))),
+                    and_(eq(busy, 0), gt(amSlot, 0))),
+               and_(and_(eq(screen, 10), eq(roundOn, 1)),
+                    and_(eq(busy, 0), gt(cfStreak, 0)))),
         [show()], [hide()])),
 )
 
@@ -649,6 +684,7 @@ cash.script(when_clicked(), if_(eq(screen, 6), broadcast(p, "stairCash")))
 cash.script(when_clicked(), if_(eq(screen, 7), broadcast(p, "duckCash")))
 cash.script(when_clicked(), if_(eq(screen, 8), broadcast(p, "avCash")))
 cash.script(when_clicked(), if_(eq(screen, 9), broadcast(p, "amCash")))
+cash.script(when_clicked(), if_(eq(screen, 10), broadcast(p, "coinCash")))
 cash.script(
     when_clicked(),
     if_(and_(eq(screen, 3), and_(eq(roundOn, 1), gt(picks, 0))),
@@ -1012,19 +1048,22 @@ for nm, f in [("slots", "lt_slots"), ("plinko", "lt_plinko"),
               ("mines", "lt_mines"), ("bj", "lt_bj"),
               ("roul", "lt_roulette"), ("stairs", "lt_stairs"),
               ("duck", "lt_duck"), ("crash", "lt_crash"),
-              ("avia", "lt_avia")]:
+              ("avia", "lt_avia"), ("coin", "lt_coin"),
+              ("dice", "lt_dice")]:
     C(menu, nm, f)
 menu.visible = False
 mIdx = menu.local_var("mIdx", 0)
 menu.script(when_flag(), hide(), set_var(mIdx, 0),
-            repeat(9, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
+            repeat(11, change_var(mIdx, 1), clone()), set_var(mIdx, 0))
 menu.script(
     when_clone(),
     switch_costume_r(mIdx, "slots"),
-    # nine tiles: five across the top, four centred beneath
-    if_else(not_(gt(mIdx, 5)),
-            [goto(add(-176, mul(88, sub(mIdx, 1))), 30)],
-            [goto(add(-132, mul(88, sub(mIdx, 6))), -58)]),
+    # eleven tiles: six across, five centred beneath. The table felt in the
+    # backdrop runs from y 137 down to -125, which is two rows of tiles and
+    # no more - a third row would hang off the table and into the bet bar.
+    if_else(not_(gt(mIdx, 6)),
+            [goto(add(-185, mul(74, sub(mIdx, 1))), 16)],
+            [goto(add(-148, mul(74, sub(mIdx, 7))), -62)]),
     forever(if_else(eq(screen, 0),
                     [show(),
                      if_else(touching_mouse(),
@@ -1044,7 +1083,9 @@ menu.script(
         if_(eq(mIdx, 6), broadcast(p, "openStairs")),
         if_(eq(mIdx, 7), broadcast(p, "openDuck")),
         if_(eq(mIdx, 8), broadcast(p, "openCrash")),
-        if_(eq(mIdx, 9), broadcast(p, "openAvia"))),
+        if_(eq(mIdx, 9), broadcast(p, "openAvia")),
+        if_(eq(mIdx, 10), broadcast(p, "openCoin")),
+        if_(eq(mIdx, 11), broadcast(p, "openDice"))),
 )
 
 # ===================================================== chrome
@@ -1104,18 +1145,16 @@ for nm, file_pfx, count, var, xx, scr, guard in [
         ("DiffSel", "sel_diff", 5, stDiff, -45, 6, "stairs"),
         ("DuckSel", "sel_duck", 4, dkMode, -45, 7, "duck"),
         ("AvSel", "sel_auto", 5, avAuto, -45, 8, "crash"),
-        ("AviaSel", "sel_auto", 5, amAuto, -45, 9, "avia")]:
+        ("AviaSel", "sel_auto", 5, amAuto, -45, 9, "avia"),
+        ("CallSel", "sel_call", 2, cfCall, -45, 10, "coin"),
+        ("ChanceSel", "sel_chance", 5, dcMode, -45, 11, "dice"),
+        ("SideSel", "sel_side", 2, dcSide, 158, 11, "dice")]:
     s = p.sprite(nm)
     for n in range(1, count + 1):
         C(s, f"c{n}", f"{file_pfx}{n}")
     s.x, s.y, s.visible = xx, -152, False
-    ok = (and_(eq(screen, 2), eq(ballsUp, 0)) if guard == "plinko"
-          else (and_(eq(screen, 3), eq(roundOn, 0)) if guard == "mines"
-                else (and_(eq(screen, 6), eq(roundOn, 0)) if guard == "stairs"
-                      else (and_(eq(screen, 7), eq(roundOn, 0)) if guard == "duck"
-                            else (and_(eq(screen, 8), eq(roundOn, 0))
-                                  if guard == "crash"
-                                  else and_(eq(screen, 9), eq(roundOn, 0)))))))
+    ok = (and_(eq(screen, scr), eq(ballsUp, 0)) if guard == "plinko"
+          else and_(eq(screen, scr), eq(roundOn, 0)))
     s.script(when_flag(), goto(xx, -152))
     s.script(when_flag(),
              forever(switch_costume_r(var, "c1"),
@@ -1126,17 +1165,19 @@ for nm, file_pfx, count, var, xx, scr, guard in [
             SFX("click"),
             change_var(var, 1),
             if_(gt(var, count), set_var(var, 1)),
-            broadcast(p, "refreshPlinko") if guard == "plinko"
-            else (broadcast(p, "stairRefresh") if guard == "stairs"
-                  else (broadcast(p, "duckRefresh") if guard == "duck"
-                        else None))),
+            {"plinko": lambda: broadcast(p, "refreshPlinko"),
+             "stairs": lambda: broadcast(p, "stairRefresh"),
+             "duck": lambda: broadcast(p, "duckRefresh"),
+             "dice": lambda: set_var(mult, item_of(diceMult, dcMode)),
+             }.get(guard, lambda: None)()),
     )
 
 act = p.sprite("ActionBtn")
 for nm, f in [("spin", "btn_spin"), ("drop", "btn_drop"),
               ("start", "btn_start"), ("deal", "btn_deal"),
               ("go", "btn_go"), ("fly", "btn_launch"),
-              ("takeoff", "btn_takeoff")]:
+              ("takeoff", "btn_takeoff"), ("flip", "btn_flip"),
+              ("roll", "btn_roll")]:
     C(act, nm, f)
 act.visible = False
 act.script(
@@ -1160,6 +1201,11 @@ act.script(
                  if_(eq(screen, 8), goto(52, -152), switch_costume("fly"),
                      if_else(eq(roundOn, 0), [show()], [hide()])),
                  if_(eq(screen, 9), goto(52, -152), switch_costume("takeoff"),
+                     if_else(eq(roundOn, 0), [show()], [hide()])),
+                 # coin flip: FLIP both starts the run and takes the next rung
+                 if_(eq(screen, 10), goto(52, -152), switch_costume("flip"),
+                     show()),
+                 if_(eq(screen, 11), goto(52, -152), switch_costume("roll"),
                      if_else(eq(roundOn, 0), [show()], [hide()]))])),
 )
 act.script(when_clicked(), if_(eq(busy, 0), SFX("click"),
@@ -2105,6 +2151,246 @@ amc.script(
              set_var(busy, 0),
              broadcast(p, "amReset")])),
 )
+
+# ===================================================== COIN FLIP
+# Call a side and keep flipping. Every correct call doubles the pot; one wrong
+# call takes the stake. src/tables6.py solves the ladder as 0.96 * 2^n, so
+# cashing out on any rung returns exactly the house 0.96 - the cut is taken on
+# entry and there is no rung worth holding out for.
+#
+# The side is drawn before the coin moves, and the coin renders from `cfSpin`
+# and `cfSide` in a forever loop rather than running a spin animation of its
+# own. An animation script would be restarted by the next flip (PITFALLS 2) and
+# on the fast build a round finishes in a frame, so the face on screen could
+# outlive the flip that produced it. Rendering from state cannot disagree with
+# what was paid.
+CF_RUNGS = T6["coinRungs"]
+
+cfelt = p.sprite("CoinFelt")
+C(cfelt, "felt", "coin_felt")
+cfelt.x, cfelt.y, cfelt.visible = AV6.FELT_XY[0], AV6.FELT_XY[1], False
+cfelt.script(when_flag(), goto(*AV6.FELT_XY), go_layer("back"))
+cfelt.script(when_flag(), vis([10], [go_layer("back")]))
+
+clad = p.sprite("CoinLadder")
+C(clad, "lad", "coin_ladder")
+clad.x, clad.y, clad.visible = AV6.LADDER_XY[0], AV6.LADDER_XY[1], False
+clad.script(when_flag(), goto(*AV6.LADDER_XY), go_layer("back"))
+clad.script(when_flag(), vis([10], [go_layer("back")]))
+
+# the marker rides the gap beside the ladder, on the rung the streak reached
+cpip = p.sprite("CoinPip")
+C(cpip, "pip", "coin_pip")
+cpip.visible = False
+cpip.script(
+    when_flag(),
+    forever(if_else(and_(eq(screen, 10), gt(cfStreak, 0)),
+                    [goto(AV6.PIP_X, item_of(coinRungY, cfStreak)),
+                     go_layer("front"), show()],
+                    [hide()])),
+)
+
+coin = p.sprite("Coin")
+for n in range(1, AV6.COIN_FRAMES + 1):
+    C(coin, f"cf{n}", f"cf{n}")
+coin.x, coin.y, coin.visible = AV6.COIN_XY[0], AV6.COIN_XY[1], False
+cfF = coin.local_var("cfF", 1)
+coin.script(
+    when_flag(), goto(*AV6.COIN_XY), set_var(cfF, 1),
+    forever(
+        if_else(eq(screen, 10), [go_layer("front"), show()], [hide()]),
+        if_else(
+            eq(cfSpin, 1),
+            [change_var(cfF, 1),
+             if_(gt(cfF, AV6.COIN_FRAMES), set_var(cfF, 1)),
+             switch_costume_r(cfF, "cf1")],
+            # at rest it shows the side that was actually drawn
+            [if_else(eq(cfSide, 2),
+                     [switch_costume(f"cf{AV6.COIN_TAILS}"),
+                      set_var(cfF, AV6.COIN_TAILS)],
+                     [switch_costume(f"cf{AV6.COIN_HEADS}"),
+                      set_var(cfF, AV6.COIN_HEADS)])])),
+)
+
+# --- the round
+cfc = p.sprite("CoinCtrl")
+C(cfc, "blank", "msg_blank")
+cfc.visible = False
+cfc.script(when_flag(), hide())
+
+# Capturing the multiplier and paying happen in one warped procedure, and it is
+# the only thing in the game that credits a coin flip: topping the ladder calls
+# this rather than paying a second time of its own.
+cf_cash = Proc(cfc, "coin cash", [], warp=True)
+define(cfc, cf_cash,
+       if_(and_(eq(screen, 10), and_(eq(roundOn, 1), gt(cfStreak, 0))),
+           set_var(cfAt, mult),
+           set_var(win, round_(mul(bet, cfAt))),
+           change_var(chips, win),
+           set_var(cfCashed, 1),
+           set_var(roundOn, 0), set_var(busy, 1)),
+       x=40, y=40)
+
+# NOT warped: it waits while the coin is in the air. A warp procedure that
+# yields re-runs the yielding block instead of yielding (see PITFALLS).
+cf_flip = Proc(cfc, "coin flip", [], warp=False)
+define(
+    cfc, cf_flip,
+    set_var(busy, 1),
+    # the side is settled here, before a single frame of the spin
+    set_var(cfSide, rand(1, 2)),
+    set_var(cfSpin, 1), SFX("reel"),
+    wait(0.62),
+    set_var(cfSpin, 0),
+    if_else(
+        eq(cfSide, cfCall),
+        [change_var(cfStreak, 1),
+         set_var(mult, item_of(coinMults, cfStreak)),
+         SFX("gem", mul(sub(cfStreak, 1), 6)),
+         # the ladder tops out: paid through the one cash-out path
+         if_(not_(lt(cfStreak, CF_RUNGS)),
+             cf_cash.call(),
+             set_var(msgId, 11), SFX("bigwin"),
+             wait(1.5), set_var(msgId, 1),
+             set_var(cfStreak, 0), set_var(mult, 1))],
+        # the call was wrong: roundOn drops while busy is already raised, so
+        # there is no frame in which FLIP is live over a settled round
+        [set_var(mult, 0), set_var(roundOn, 0),
+         SFX("bomb"), set_var(msgId, 3),
+         wait(1.3), set_var(msgId, 1),
+         set_var(cfStreak, 0), set_var(mult, 1)]),
+    set_var(busy, 0),
+    x=40, y=40,
+)
+
+cfc.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 10), eq(busy, 0)),
+        if_else(
+            eq(roundOn, 0),
+            [if_else(lt(chips, bet),
+                     [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+                     [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+                      set_var(win, 0),
+                      set_var(cfStreak, 0), set_var(cfCashed, 0),
+                      set_var(cfAt, 0), set_var(mult, 1),
+                      set_var(roundOn, 1),
+                      cf_flip.call()])],
+            [cf_flip.call()])),
+)
+
+cfc.script(
+    when_bc(p, "coinCash"),
+    if_(and_(and_(eq(screen, 10), eq(busy, 0)),
+             and_(eq(roundOn, 1), gt(cfStreak, 0))),
+        cf_cash.call(),
+        set_var(msgId, 9), SFX("cash"),
+        wait(1.6), set_var(msgId, 1),
+        set_var(cfStreak, 0), set_var(mult, 1), set_var(busy, 0)),
+)
+
+
+# ===================================================== DICE
+# Roll 0.00-99.99 against a threshold, betting that it lands under or over.
+# The roll is drawn as an integer number of hundredths and every comparison is
+# made on that integer, so what pays never depends on how a float prints.
+# src/tables6.py picks the five chances so that chance x payout is exactly the
+# house 0.96 in every mode and on either side.
+DC_OUT = T6["diceOutcomes"]
+
+dfelt = p.sprite("DiceFelt")
+C(dfelt, "felt", "dice_felt")
+dfelt.x, dfelt.y, dfelt.visible = AV6.DFELT_XY[0], AV6.DFELT_XY[1], False
+dfelt.script(when_flag(), goto(*AV6.DFELT_XY), go_layer("back"))
+dfelt.script(when_flag(), vis([11], [go_layer("back")]))
+
+# The winning span is painted into the costume from the same solved table the
+# payout reads, so what pays is on the screen rather than in the player's head.
+dtrk = p.sprite("DiceTrack")
+for _m in range(1, len(T6["diceWin"]) + 1):
+    for _sd in ("u", "o"):
+        C(dtrk, f"t{_m}{_sd}", f"dice_tr{_m}{_sd}")
+dtrk.x, dtrk.y, dtrk.visible = AV6.TRACK_XY[0], AV6.TRACK_XY[1], False
+dtrk.script(when_flag(), goto(*AV6.TRACK_XY))
+dtrk.script(
+    when_flag(),
+    forever(
+        # costume order is mode-major: 1 under, 1 over, 2 under, 2 over, ...
+        switch_costume_r(add(mul(sub(dcMode, 1), 2), dcSide), "t1u"),
+        if_else(eq(screen, 11), [go_layer("front"), show()], [hide()])),
+)
+
+# The needle is positioned from dcInt every frame rather than glided to it, for
+# the same reason the coin renders from state: on the fast build the round is
+# over before an animation script could finish, and a needle left mid-glide
+# would be showing a different number from the one that was paid.
+dmark = p.sprite("DiceMark")
+C(dmark, "mark", "dice_marker")
+dmark.visible = False
+dmark.script(
+    when_flag(),
+    forever(
+        if_else(
+            and_(eq(screen, 11), or_(eq(dcRolling, 1), eq(dcShown, 1))),
+            [if_else(eq(dcRolling, 1),
+                     [goto(rand(AV6.RAIL_X0, AV6.RAIL_X1), AV6.MARK_XY[1])],
+                     [goto(add(AV6.RAIL_X0,
+                               div(mul(AV6.RAIL_X1 - AV6.RAIL_X0, dcInt),
+                                   DC_OUT)),
+                           AV6.MARK_XY[1])]),
+             go_layer("front"), show()],
+            [hide()])),
+)
+
+# --- the round
+dcc = p.sprite("DiceCtrl")
+C(dcc, "blank", "msg_blank")
+dcc.visible = False
+dcc.script(when_flag(), hide())
+
+dcc.script(
+    when_bc(p, "action"),
+    if_(and_(eq(screen, 11), and_(eq(busy, 0), eq(roundOn, 0))),
+        if_else(
+            lt(chips, bet),
+            [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
+            [change_var(chips, mul(bet, -1)), set_var(msgId, 1),
+             set_var(busy, 1), set_var(roundOn, 1), set_var(win, 0),
+             set_var(mult, item_of(diceMult, dcMode)),
+             # the roll and what it pays are settled here, before the needle
+             # moves - 0..DC_OUT-1 hundredths, compared as an integer
+             set_var(dcInt, rand(0, DC_OUT - 1)),
+             if_else(
+                 eq(dcSide, 1),
+                 # UNDER t wins below t; OVER t wins at or above DC_OUT - t.
+                 # Both are `diceWin` outcomes wide, so one table serves both.
+                 [if_else(lt(dcInt, item_of(diceWin, dcMode)),
+                          [set_var(dcWon, 1)], [set_var(dcWon, 0)])],
+                 [if_else(not_(lt(dcInt, sub(DC_OUT, item_of(diceWin, dcMode)))),
+                          [set_var(dcWon, 1)], [set_var(dcWon, 0)])]),
+             # the readout stays blank while the needle scans, so the number
+             # arrives with the needle rather than ahead of it
+             set_var(dcTxt, ""), set_var(dcRolling, 1), SFX("reel"),
+             wait(0.7),
+             set_var(dcRolling, 0), set_var(dcShown, 1),
+             set_var(dcFrac, mod(dcInt, 100)),
+             if_(lt(dcFrac, 10), set_var(dcFrac, join("0", dcFrac))),
+             set_var(dcTxt, join(join(mathop("floor", div(dcInt, 100)), "."),
+                                 dcFrac)),
+             SFX("tick"),
+             wait(0.45),
+             if_else(eq(dcWon, 1),
+                     [set_var(win, round_(mul(bet, mult))),
+                      change_var(chips, win),
+                      if_else(gt(win, mul(bet, 9)),
+                              [set_var(msgId, 11), SFX("bigwin")],
+                              [set_var(msgId, 2), SFX("win")])],
+                     [set_var(win, 0), set_var(msgId, 3), SFX("lose")]),
+             # the round ends with busy still raised from the top
+             set_var(roundOn, 0),
+             wait(1.4), set_var(msgId, 1), set_var(busy, 0)])),
+)
+
 
 out = str(BUILD / "ClubRoyale_fast.sb3") if FAST else str(DIST / "ClubRoyale.sb3")
 os.makedirs(os.path.dirname(out), exist_ok=True)

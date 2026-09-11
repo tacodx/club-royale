@@ -14,7 +14,8 @@ deps:
 ## solve the payout tables (cached in build/)
 tables:
 	cd src && $(PY) tables.py && $(PY) tables2.py && $(PY) tables3.py \
-	             && $(PY) tables4.py && $(PY) tables5.py
+	             && $(PY) tables4.py && $(PY) tables5.py \
+	             && $(PY) tables6.py
 
 ## real-timing build -> dist/ClubRoyale.sb3   (this is the shippable file)
 build:
@@ -41,6 +42,8 @@ test: fast
 	node tests/play_duck.js $(FAST) 60
 	node tests/play_crash.js $(FAST) 30
 	node tests/play_avia.js $(FAST) 60
+	node tests/play_coin.js $(FAST) 40
+	node tests/play_dice.js $(FAST) 60
 
 ## full suite on the shipped file at real speed. 30+ minutes. Run before release.
 verify: build
@@ -53,6 +56,8 @@ verify: build
 	node tests/play_duck.js $(SB3) 40
 	node tests/play_crash.js $(SB3) 20
 	node tests/play_avia.js $(SB3) 30
+	node tests/play_coin.js $(SB3) 24
+	node tests/play_dice.js $(SB3) 40
 
 ## render every screen at exact sprite coordinates -> mocks/
 mocks: build

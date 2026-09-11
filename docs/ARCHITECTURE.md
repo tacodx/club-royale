@@ -67,8 +67,8 @@ blackjack action buttons.
 
 ## Screen routing
 
-`screen` holds 0–9: lobby, slots, plinko, mines, blackjack, roulette, stairs,
-duck road, crash, aviamasters.
+`screen` holds 0–11: lobby, slots, plinko, mines, blackjack, roulette, stairs,
+duck road, crash, aviamasters, coin flip, dice.
 The stage has one `when I receive` per screen that sets `screen`, resets
 per-round state and then broadcasts `screenChanged`.
 
@@ -105,6 +105,8 @@ Scratch has no 2-D lists.
 | `rBets` | 49 slots | 1 = number 0, 2–37 = numbers 1–36, 38–49 = outside bets |
 | `amRamp` | 14 slots | per-slot ditch odds out of 1000, indexed by `amSlot` |
 | `amCum`, `amA`, `amB` | 6 orbs | cumulative weight, and the orb's affine map |
+| `coinMults` | 12 rungs | `cfStreak`, straight |
+| `diceWin`, `diceMult` | 5 modes | `dcMode`; the side flips which end of the rail wins |
 
 Crash needs no table: `src/tables4.py` only fixes the constants and asserts
 the distribution, because the failure point is sampled directly as
@@ -150,7 +152,7 @@ costume order:
 | 1 | 7 | chips, formatted | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
 | 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
-| 9 | 8 | multiplier + `x` | centre of the sky, at 170% (crash) |
+| 9 | 8 | multiplier + `x`, or the dice roll | centre of the panel, at 170% (crash, aviamasters, coin flip, dice) |
 | 4 | 2 | roulette result | under the wheel |
 | 5 | 6 | roulette stake | top bar |
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |

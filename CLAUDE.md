@@ -50,11 +50,15 @@ them. When a change touches what is shown, assert on what is rendered
 (`tests/play_blackjack.js` reconstructs the digit sprites and compares) and run
 `make mocks`.
 
-**Watch the clone budget.** Scratch caps clones at 300. Currently 233 clones are
-alive at boot, and roulette adds up to 49 chips on top, so the real worst case
-is 282 — under 20 spare. `src/build.py` prints nothing about this, so count before adding a
-clone-heavy feature: `tests/play_blackjack.js`, `tests/play_duck.js` and
-`tests/play_avia.js` all assert `< 300`.
+**Watch the clone budget.** Scratch caps clones at 300. Currently 235 clones are
+alive at boot (49 RSpot, 40 Digit, 36 StairTile, 25 MineTile, 18 Card, 17
+Bucket, 12 DuckMult, 11 MenuTile, 9 StairMult, 6 Spark, 5 AvOrb, 4 DuckCar, 3
+Reel), and roulette adds up to 49 chips on top, so the real worst case is 284 —
+16 spare. `src/build.py` prints nothing about this, so count before adding a
+clone-heavy feature: `tests/play_blackjack.js`, `tests/play_duck.js`,
+`tests/play_avia.js`, `tests/play_coin.js` and `tests/play_dice.js` all assert
+`< 300`. Coin Flip and Dice cost two clones between them — both render from
+single sprites and borrow the existing digit fields on purpose.
 
 **End a round atomically.** Crash (then called Aviamasters) set `roundOn = 0`
 when the flight ended and raised `busy` a beat later, leaving one frame where
@@ -79,6 +83,16 @@ plays the traffic to match. If a collision decided the payout instead,
 correctness would depend on frame timing and could not be proven on the fast
 build - which is the guarantee the whole suite rests on. Real crash games work
 this way too.
+
+**Render animation from state, not from an animation script.** A `when I
+receive` animation is restarted by the next broadcast (PITFALLS 2) and takes as
+many frames as it has steps — but under `FAST=1` a whole round can finish in
+one. A coin spun by its own script could therefore still be mid-tumble, or
+showing the previous flip's face, when the round that paid it is over, and a
+test asserting on the face would go red for something that is not a bug. The
+coin and the dice needle instead repaint every frame from `cfSpin`/`cfSide` and
+`dcRolling`/`dcInt`, so what is on screen cannot disagree with what was paid,
+at either speed.
 
 **Round the way Scratch rounds, not the way Python does.** Scratch's `round`
 block is JS `Math.round` — halves go away from zero. Python's `round()` goes to
@@ -116,12 +130,16 @@ src/
                  (likewise owns the flight-path geometry, and the shared
                  big-multiplier readout position used by crash and aviamasters)
   assets_v5.py   aviamasters: dusk sky, two carriers, biplane, collectible orbs
+  assets_v6.py   coin flip: felt, 12-frame coin, the payout ladder; dice: the
+                 0-100 rail and its ten mode/side costumes (owns both games'
+                 geometry, and writes build/geom6.json for the harnesses)
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
   tables3.py     duck road (4 modes) solver, base + golden-egg ladders
   tables4.py     crash distribution + climb constants
   tables5.py     aviamasters orb mix + the per-slot ditch ramp
+  tables6.py     coin flip ladder + dice chances (both exact, no rounding)
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
@@ -133,6 +151,8 @@ tests/
   play_duck.js        duck road: table vs an independent solve, every hop
   play_crash.js       crash: failure point, climb, cash-out, auto
   play_avia.js        aviamasters: replays every flight from its orb log
+  play_coin.js        coin flip: every call, every rung, the coin's own face
+  play_dice.js        dice: every mode and side, the needle and the readout
 tools/
   mock.py        composite every screen at exact sprite coordinates
 ```
@@ -150,6 +170,8 @@ tools/
 | Duck Road | 96% RTP | 12 lanes, 4 modes; 25% of runs hide a 3x golden egg |
 | Crash | 96% RTP | rocket climb; failure point drawn at launch, up to 9600x, auto cash-out |
 | Aviamasters | 96% RTP | 14 orbs on the route; rockets halve, cap 250x; every cash-out point worth the same |
+| Coin Flip | 96% RTP | call a side; 12 rungs of exactly 0.96 x 2^n, cash out on any of them |
+| Dice | 96% RTP | roll 0.00-99.99 under or over; 5 chances, 80% to 1.92%, each exactly 0.96 |
 
 ## Known limitations
 
