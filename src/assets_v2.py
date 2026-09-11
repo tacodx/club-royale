@@ -199,6 +199,7 @@ def stair_mults():
 
 
 # ========================================================= lobby v2
+# 11 games, four over four over three on the taller lobby table.
 LW, LH = 82, 70
 
 
@@ -395,6 +396,7 @@ def ic_avia(img, c):
 
 
 def build():
+    backdrop("bg_lobby", table_h=LOBBY_TABLE_H, bottom_bar=False)
     deco_button("btn_double", "DOUBLE", 92, 38, fs=11, tracking=3)
     deco_button("btn_split", "SPLIT", 92, 38, fs=11, tracking=3)
     deco_button("btn_insure", "INSURE", 92, 38, primary=True, fs=11, tracking=3)

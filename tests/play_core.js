@@ -305,12 +305,21 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('bj: dealer draws to 17', drawOK);
 
   // ------------------------------------------------ economy
+  // There is no rebuy: broke is broke until the green flag. Nothing may hand
+  // the player chips back, and nothing may hang waiting for it to happen.
   click(back); await sleep(250);
   setv('chips', 0);
-  await until(() => Number(gv('chips')) === 500, 'rebuy', 400);
-  check('economy: rebuy at zero', Number(gv('chips')) === 500);
-  await sleep(200);
-  check('economy: bet reset within reach', Number(gv('bet')) <= 500, 'bet ' + gv('bet'));
+  await sleep(2600);                     // longer than the old rebuy's 1.6s wait
+  check('economy: no rebuy at zero', Number(gv('chips')) === 0,
+        'chips ' + gv('chips'));
+  // and a game must still refuse the bet rather than paying out of an empty
+  // bankroll or wedging
+  click(tile(1)); await sleep(300);
+  const beforeBroke = Number(gv('chips'));
+  click(act); await sleep(900);
+  check('economy: broke cannot spin', Number(gv('chips')) === beforeBroke &&
+        Number(gv('busy')) === 0, `chips ${gv('chips')} busy ${gv('busy')}`);
+  click(back); await sleep(250);
 
   vm.stopAll();
   console.log('\n================ v1.1 RESULTS ================');

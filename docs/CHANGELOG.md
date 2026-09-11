@@ -3,6 +3,119 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v4.1
+
+**A sprite could be left on top of every screen until the green flag.** Click a
+game about a second after loading and one tile of it stayed visible in the lobby
+and in every other game. Two things caused it, both from the same window.
+Spawning is `repeat 36 [create clone]`, one clone per frame, so for 36 frames
+the *original* sprite still carries the loop's index - and every
+broadcast-driven sprite guards its refresh with `if idx > 0` precisely to
+exclude the original. A refresh arriving mid-spawn therefore drew the original
+as a 37th tile, and the end of the loop then reset the index to 0, excluding it
+from every later refresh, so nothing ever hid it again. Clones born after that
+refresh never received one either, which is why the board also came up missing
+its top row. StairTile, RSpot and Bucket all had it. Their spawn loops are
+warped now, so clone creation and the reset are one non-yielding step and there
+is no window.
+
+`tests/boot_race.js` is new and is the only check that can see this: it opens
+every game at eight timings across the spawn window and asserts that no sprite
+original is left visible and that each board is complete. It fails on the
+previous build and passes on this one.
+
+**Dice is a slider now.** The five preset chances are gone; the threshold is
+dragged anywhere along the rail, which is what the game is in every real
+casino. The drag reads `mouse x` / `mouse y` rather than `touching
+mouse-pointer` - the latter needs a renderer and is always false headless
+(PITFALLS 10), so reading the pointer directly is what lets the harness drive
+the real control instead of a stand-in.
+
+With a free threshold the multiplier cannot be a solved constant, so it is
+computed where the slider is left: `floor(96000000 / winning outcomes) / 10000`.
+Flooring rather than rounding is the point - rounding would let some thresholds
+pay more than the exact figure and hand back the edge, while flooring can only
+fall short. `src/tables6.py` proves the return is at or under 0.96 at all 9401
+reachable positions and never more than 0.0001 under, and the multiplier is
+shown to the same four places it is paid at so the readout cannot disagree with
+the payout. The range is 1% to 95% win chance, 96x down to 1.0105x.
+
+The win/lose split cannot be a baked costume any more. It is drawn by two plain
+bars, each exactly one rail wide, that share an edge on the threshold; whatever
+they overhang is covered by `DiceFrame`, whose opaque part is cut from a real
+composite of the backdrop and the felt so it replaces exactly what it covers.
+Scaling a single bar would have been simpler and does not work: scratch-vm
+clamps `set size` to `1.5 x stage / costume height`, so a costume tall enough to
+still fill the rail at a 1% width cannot be scaled up at all. Both readouts
+reuse idle digit fields, so the rebuild costs no clones.
+
+**The coin flip call is live between flips.** It was locked for the whole run,
+so a long streak needed the same side to keep landing. A streak is a sequence of
+independent 50/50 calls, so the side is now re-pickable before every flip and
+only locked while a coin is in the air. The maths is untouched.
+
+**The lobby is three rows.** Eleven tiles were crammed into six-over-five at
+68x66 because the table felt in the backdrop only runs from y 137 to y -125. The
+lobby now has its own backdrop with a taller table and no bet-bar strip - it
+shows no bet controls, so those 44 units were dead space - and the tiles are
+back to the 82x70 of the nine-game lobby, four over four over three.
+
+**No more free chips at zero.** Running out ends the session; the green flag
+starts you at 1000 again. `tests/play_core.js` asserted the rebuy happened and
+now asserts it does not, and that a broke player is refused rather than wedged.
+
+## v4.0
+
+**Two more games: Coin Flip and Dice.** Eleven now.
+
+**Coin Flip** is a streak, not a single toss. Call heads or tails, and every
+correct call doubles the pot; one wrong call takes the stake. The ladder is
+`0.96 * 2^n` for twelve rungs, 1.92x to 3932.16x, and cashing out on any of
+them returns exactly 0.96 of the stake — the cut is taken on entry, so there
+is no rung worth holding out for. Unlike every other table in the project this
+one needs no rounding at all: `0.96 * 2^n` terminates at two decimals for
+every n, so `src/tables6.py` proves the edge in `Fraction` arithmetic instead
+of asserting it within a tolerance. `3932.16x` is eight characters, which is
+exactly what the big readout has slots for.
+
+**Dice** rolls 0.00–99.99 against a threshold, under or over. The roll is drawn
+as a whole number of hundredths out of 10,000 and every comparison is made on
+that integer, so what pays never depends on how a float prints. The five
+chances — 80%, 48%, 24%, 9.6%, 1.92% — were picked so that
+`chance x payout` is exactly 0.96 in every mode, which makes the check
+`wins * payout-in-hundredths == 10000 * 96` in integers. UNDER t and OVER
+(100 - t) are the same number of outcomes, so one table serves both sides.
+
+**The lobby is six across and five beneath.** Eleven tiles at 68x66. Nine fitted
+as five-over-four at 82x70, but six across would need 528 of the 480 stage, and
+three rows of 70 hang off the table felt in the backdrop — it runs from y 137
+down to y -125, which is two rows and no more. The tiles shrank instead, and the
+label padding shrank with them so the longest name still fits the octagon.
+
+**Neither game runs an animation script.** The coin repaints every frame from
+`cfSpin`/`cfSide` and the dice needle from `dcRolling`/`dcInt`. A `when I
+receive` spin would be restarted by the next flip (PITFALLS 2) and takes as many
+frames as it has steps, but under `FAST=1` a whole round finishes in one — so
+the coin could still be tumbling, or showing the previous flip, when the round
+that paid it was over. Rendering from state means the face on screen cannot
+disagree with the side that was paid, at either speed, and both harnesses assert
+on it.
+
+**Both games borrow the existing readout rather than adding digit clones.**
+Field 9 was crash's; it now carries the coin's pot and the dice roll too, and
+the two games cost two clones between them — the extra lobby tiles. Boot is 235
+of the 300, worst case 284 once roulette lays 49 chips.
+
+**Two clone-budget assertions were measuring the wrong number.**
+`play_blackjack.js` and `play_games.js` compared `runtime.targets.length`
+against 300, but Scratch's cap is on clones alone: `Runtime.MAX_CLONES` is
+checked against `_cloneCounter`, and `makeClone()` is the only thing that
+increments it — sprite originals are not part of the budget. With 65 originals
+in the count the reading was 298, two under a limit it was not actually
+approaching, and twelve new sprites took it to 312 while the real clone count
+moved 233 → 235. Both now count clones, as `play_duck.js` and `play_avia.js`
+always did.
+
 ## v3.9
 
 **Aviamasters, properly this time.** The ninth game, and the second attempt at

@@ -19,6 +19,21 @@ It was invisible across 144 single-ball drops because the previous ball had
 always been deleted before the next click. It only appeared with two balls
 airborne at once.
 
+**The index guard has a window.** Where a clone carries a meaningful index and
+the original holds 0, `if_(gt(idx, 0), ...)` looks equivalent - but only once
+the spawn loop has finished. An unwarped `repeat 36 [create clone]` takes 36
+frames, and for all of them the original is carrying the loop counter, so a
+broadcast arriving mid-spawn passes the guard on the original too. The end of
+the loop then resets the index to 0 and the original is excluded from every
+later refresh, so whatever state that one broadcast left it in is permanent.
+
+That shipped: clicking STAIRS about a second after the green flag drew the
+StairTile original as a 37th tile and left it visible on every screen until
+the flag was clicked again. Plinko's buckets and the roulette spots had it too.
+The spawn loops are warped now, which makes clone creation and the reset a
+single non-yielding step. `tests/boot_race.js` clicks into every game across
+the whole spawn window and is the only check that would catch a regression.
+
 **Fix:** give the sprite a local variable and gate on it.
 
 ```python
@@ -177,11 +192,45 @@ is the only way.
 
 ---
 
+## 10b. Headless, the sequencer runs many passes per frame
+
+`RenderedTarget.setVisible` / `setXY` only call `runtime.requestRedraw()` when
+`this.renderer` exists. With no renderer `runtime.redrawRequested` is never set,
+so the sequencer's loop
+
+```js
+while (threads.length > 0 && numActiveThreads > 0 &&
+       this.timer.timeElapsed() < WORK_TIME &&
+       (turboMode || !this.runtime.redrawRequested))
+```
+
+never breaks on the redraw condition and keeps going until `WORK_TIME`, which
+is `0.75 * runtime.currentStepTime`. A `repeat` that yields once per pass
+therefore runs *several* iterations per frame headless where a browser runs
+exactly one.
+
+This is not cosmetic: it shrinks timing windows the suite exists to test. A
+36-clone spawn loop takes ~36 frames in a browser and under one headless, which
+hid the spawn-window bug in §1 from every harness. Where a test depends on a
+real frame cadence, drive the VM yourself and pin the step time:
+
+```js
+vm.runtime.currentStepTime = 0.001;   // WORK_TIME tiny -> one pass per step
+vm.runtime._step();
+```
+
+`tests/boot_race.js` does exactly this, which is why it can click at an exact
+frame number instead of guessing at a wall-clock delay that would mean
+different things on different machines.
+
+---
+
 ## 11. Clone limit is 300
 
-Currently 241 are alive: 32 digits, 49 roulette spots, 36 stair tiles, 25 mine
-tiles, 18 cards, 17 buckets, 9 stair multipliers, 6 lobby tiles, 3 reels, plus
-transient chips and Plinko balls. Scratch silently refuses to create beyond the
+Currently 235 are alive at boot: 49 roulette spots, 40 digits, 36 stair tiles,
+25 mine tiles, 18 cards, 17 buckets, 12 duck multipliers, 11 lobby tiles, 9
+stair multipliers, 6 sparks, 5 orbs, 4 cars, 3 reels — plus up to 49 transient
+roulette chips and the Plinko balls. Scratch silently refuses to create beyond the
 cap, so a ball that fails to spawn after the bet was deducted would lose money.
 The Plinko spawn is guarded with `ballsUp < 25` for that reason.
 
