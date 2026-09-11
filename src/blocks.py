@@ -222,6 +222,14 @@ def mouse_down():
     return Ref("sensing_mousedown")
 
 
+def mouse_x():
+    return Ref("sensing_mousex")
+
+
+def mouse_y():
+    return Ref("sensing_mousey")
+
+
 def touching_mouse():
     return Ref(
         "sensing_touchingobject",

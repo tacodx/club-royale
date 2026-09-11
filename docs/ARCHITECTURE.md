@@ -106,7 +106,10 @@ Scratch has no 2-D lists.
 | `amRamp` | 14 slots | per-slot ditch odds out of 1000, indexed by `amSlot` |
 | `amCum`, `amA`, `amB` | 6 orbs | cumulative weight, and the orb's affine map |
 | `coinMults` | 12 rungs | `cfStreak`, straight |
-| `diceWin`, `diceMult` | 5 modes | `dcMode`; the side flips which end of the rail wins |
+
+Dice has no table: the threshold is dragged, so `src/tables6.py` fixes the
+range and the precision and asserts the invariant, and the multiplier is
+computed in the VM as `floor(96000000 / winning outcomes) / 10000`.
 
 Crash needs no table: `src/tables4.py` only fixes the constants and asserts
 the distribution, because the failure point is sampled directly as
@@ -151,10 +154,10 @@ costume order:
 |---|---|---|---|
 | 1 | 7 | chips, formatted | top-left, left-aligned |
 | 2 | 4 | bet | on the bet plaque, hidden while `roundOn` |
-| 3 | 7 | multiplier | top bar (mines, stairs, duck road) |
+| 3 | 7 | multiplier | top bar (mines, stairs, duck road, dice) |
 | 9 | 8 | multiplier + `x`, or the dice roll | centre of the panel, at 170% (crash, aviamasters, coin flip, dice) |
 | 4 | 2 | roulette result | under the wheel |
-| 5 | 6 | roulette stake | top bar |
+| 5 | 6 | roulette stake, or the dice win chance | top bar; bet bar on dice |
 | 6/7/8 | 2 each | dealer / hand 1 / hand 2 totals | blackjack left column |
 
 Each clone reads one character of its source string and positions itself from

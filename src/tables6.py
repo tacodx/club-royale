@@ -41,35 +41,64 @@ print(f"  every rung: EV of cashing out there = {float(HOUSE)} exactly")
 assert len(f"{COIN[-1]:g}x") <= 8, f"{COIN[-1]:g}x"
 
 # ------------------------------------------------------------------ dice
-# The roll is an integer 0..9999 shown as 0.00..99.99, so a threshold in
-# hundredths is an exact outcome count and the comparison never touches a
-# float. UNDER t wins on roll < t, OVER t wins on roll >= 10000 - t; both
-# are t outcomes out of 10000, so one table serves both sides.
-DICE_OUTCOMES = 10000
+# The threshold is dragged, not picked from presets, so the multiplier cannot
+# be a solved constant - it is computed from wherever the slider is left:
+#
+#     mult(w) = floor(HOUSE * OUTCOMES * PREC / w) / PREC
+#
+# for w winning outcomes out of OUTCOMES. Flooring is the point. Rounding would
+# let the rounded multiplier exceed the exact one and hand the player an edge
+# at some thresholds; flooring can only ever fall short, so
+#
+#     RTP(w) = w * floor(96000000 / w) / (OUTCOMES * PREC)  <=  0.96   always
+#
+# and PREC picks how far short. At two decimals the shortfall reaches 0.0094 -
+# a 4.94% house edge at some slider positions, which is not "96% RTP" in any
+# honest sense. At four it is under 0.0001 everywhere. The multiplier is shown
+# to the same four places it is paid at, so the readout never disagrees with
+# the payout.
+DICE_OUTCOMES = 10000              # rolls are 0.00..99.99, as hundredths
+DICE_PREC = 10000                  # multiplier resolution: 4 decimals
+DICE_MIN_WIN, DICE_MAX_WIN = 100, 9500     # 1.00% .. 95.00% win chance
 
-# (selector caption, winning outcomes, multiplier)
-DICE_MODES = [("80%",   8000, 1.20),
-              ("48%",   4800, 2.00),
-              ("24%",   2400, 4.00),
-              ("9.6%",   960, 10.00),
-              ("1.92%",  192, 50.00)]
 
-print("\nDICE  (0.00-99.99, 0.96 house)")
-for cap, out, mult in DICE_MODES:
-    rtp = F(out, DICE_OUTCOMES) * F(str(mult))
-    assert rtp == HOUSE, (cap, rtp)
-    assert 0 < out < DICE_OUTCOMES
-    print(f"  chance {cap:>6}  under {out/100:>5g} / over {(DICE_OUTCOMES-out)/100:>5g}"
-          f"   pays {mult:>5g}x   RTP {float(rtp):.4f}")
-print(f"  every mode and side: RTP = {float(HOUSE)} exactly")
+def dice_mult(w):
+    return (HOUSE * DICE_OUTCOMES * DICE_PREC).numerator // (
+        w * (HOUSE * DICE_OUTCOMES * DICE_PREC).denominator) / DICE_PREC
+
+
+print("\nDICE  (0.00-99.99, dragged threshold, 0.96 house)")
+worst_w, worst_rtp = None, F(1)
+best_rtp = F(0)
+exact = 0
+for w in range(DICE_MIN_WIN, DICE_MAX_WIN + 1):
+    m100 = (96000000) // w                       # floor, in units of 1/PREC
+    rtp = F(w * m100, DICE_OUTCOMES * DICE_PREC)
+    assert rtp <= HOUSE, (w, rtp)                # never above the target
+    if rtp == HOUSE:
+        exact += 1
+    if rtp < worst_rtp:
+        worst_rtp, worst_w = rtp, w
+    best_rtp = max(best_rtp, rtp)
+for w in (DICE_MIN_WIN, 1920, 2400, 4800, 8000, DICE_MAX_WIN):
+    print(f"  chance {w/100:>6.2f}%   pays {96000000 // w / DICE_PREC:>10g}x"
+          f"   RTP {float(F(w * (96000000 // w), DICE_OUTCOMES * DICE_PREC)):.6f}")
+print(f"  across all {DICE_MAX_WIN - DICE_MIN_WIN + 1} slider positions: "
+      f"RTP max {float(best_rtp):.6f}, min {float(worst_rtp):.6f} "
+      f"(at {worst_w/100:.2f}%), exact on {exact}")
+assert worst_rtp > F(9599, 10000), worst_rtp    # within 0.01% of the target
+# the widest the readout ever has to draw
+assert len(f"{96000000 // DICE_MIN_WIN / DICE_PREC:g}x") <= 7
+assert max(len(f"{96000000 // w / DICE_PREC:g}")
+           for w in range(DICE_MIN_WIN, DICE_MAX_WIN + 1)) <= 7
 
 from paths import BUILD
 json.dump({"coin": COIN,
            "coinRungs": COIN_RUNGS,
            "diceOutcomes": DICE_OUTCOMES,
-           "diceCaps":   [m[0] for m in DICE_MODES],
-           "diceWin":    [m[1] for m in DICE_MODES],
-           "diceMult":   [m[2] for m in DICE_MODES],
+           "dicePrec": DICE_PREC,
+           "diceMinWin": DICE_MIN_WIN,
+           "diceMaxWin": DICE_MAX_WIN,
            "house": float(HOUSE)},
           open(BUILD / "tables6.json", "w"))
 print("\nok")

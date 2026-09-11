@@ -44,6 +44,7 @@ test: fast
 	node tests/play_avia.js $(FAST) 60
 	node tests/play_coin.js $(FAST) 40
 	node tests/play_dice.js $(FAST) 60
+	node tests/boot_race.js $(FAST)
 
 ## full suite on the shipped file at real speed. 30+ minutes. Run before release.
 verify: build
@@ -58,6 +59,7 @@ verify: build
 	node tests/play_avia.js $(SB3) 30
 	node tests/play_coin.js $(SB3) 24
 	node tests/play_dice.js $(SB3) 40
+	node tests/boot_race.js $(SB3)
 
 ## render every screen at exact sprite coordinates -> mocks/
 mocks: build

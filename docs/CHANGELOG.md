@@ -3,6 +3,67 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v4.1
+
+**A sprite could be left on top of every screen until the green flag.** Click a
+game about a second after loading and one tile of it stayed visible in the lobby
+and in every other game. Two things caused it, both from the same window.
+Spawning is `repeat 36 [create clone]`, one clone per frame, so for 36 frames
+the *original* sprite still carries the loop's index - and every
+broadcast-driven sprite guards its refresh with `if idx > 0` precisely to
+exclude the original. A refresh arriving mid-spawn therefore drew the original
+as a 37th tile, and the end of the loop then reset the index to 0, excluding it
+from every later refresh, so nothing ever hid it again. Clones born after that
+refresh never received one either, which is why the board also came up missing
+its top row. StairTile, RSpot and Bucket all had it. Their spawn loops are
+warped now, so clone creation and the reset are one non-yielding step and there
+is no window.
+
+`tests/boot_race.js` is new and is the only check that can see this: it opens
+every game at eight timings across the spawn window and asserts that no sprite
+original is left visible and that each board is complete. It fails on the
+previous build and passes on this one.
+
+**Dice is a slider now.** The five preset chances are gone; the threshold is
+dragged anywhere along the rail, which is what the game is in every real
+casino. The drag reads `mouse x` / `mouse y` rather than `touching
+mouse-pointer` - the latter needs a renderer and is always false headless
+(PITFALLS 10), so reading the pointer directly is what lets the harness drive
+the real control instead of a stand-in.
+
+With a free threshold the multiplier cannot be a solved constant, so it is
+computed where the slider is left: `floor(96000000 / winning outcomes) / 10000`.
+Flooring rather than rounding is the point - rounding would let some thresholds
+pay more than the exact figure and hand back the edge, while flooring can only
+fall short. `src/tables6.py` proves the return is at or under 0.96 at all 9401
+reachable positions and never more than 0.0001 under, and the multiplier is
+shown to the same four places it is paid at so the readout cannot disagree with
+the payout. The range is 1% to 95% win chance, 96x down to 1.0105x.
+
+The win/lose split cannot be a baked costume any more. It is drawn by two plain
+bars, each exactly one rail wide, that share an edge on the threshold; whatever
+they overhang is covered by `DiceFrame`, whose opaque part is cut from a real
+composite of the backdrop and the felt so it replaces exactly what it covers.
+Scaling a single bar would have been simpler and does not work: scratch-vm
+clamps `set size` to `1.5 x stage / costume height`, so a costume tall enough to
+still fill the rail at a 1% width cannot be scaled up at all. Both readouts
+reuse idle digit fields, so the rebuild costs no clones.
+
+**The coin flip call is live between flips.** It was locked for the whole run,
+so a long streak needed the same side to keep landing. A streak is a sequence of
+independent 50/50 calls, so the side is now re-pickable before every flip and
+only locked while a coin is in the air. The maths is untouched.
+
+**The lobby is three rows.** Eleven tiles were crammed into six-over-five at
+68x66 because the table felt in the backdrop only runs from y 137 to y -125. The
+lobby now has its own backdrop with a taller table and no bet-bar strip - it
+shows no bet controls, so those 44 units were dead space - and the tiles are
+back to the 82x70 of the nine-game lobby, four over four over three.
+
+**No more free chips at zero.** Running out ends the session; the green flag
+starts you at 1000 again. `tests/play_core.js` asserted the rebuy happened and
+now asserts it does not, and that a broke player is refused rather than wedged.
+
 ## v4.0
 
 **Two more games: Coin Flip and Dice.** Eleven now.

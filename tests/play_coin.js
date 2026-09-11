@@ -237,6 +237,41 @@ async function bootSettle(cap = 6000) {
   check('fair: the coin is not weighted', dev < 4,
         `${heads} heads / ${tails} tails over ${flips} (${dev.toFixed(2)} sigma)`);
 
+  // ------------------------------------------- changing the call mid-streak
+  // A streak is a sequence of independent 50/50 calls, so the side has to be
+  // re-pickable between flips. It used to be locked for the whole run, which
+  // meant a long streak needed the same call to keep landing.
+  await until(settled, 'settle before recall');
+  let recall = null, rtries = 0;
+  while (recall === null && rtries++ < 40) {
+    const bet = num('bet'), before = num('chips');
+    setv('cfCall', 1);
+    await sleep(40);
+    click(act);
+    await until(() => num('chips') === before - bet, 'recall stake');
+    await until(() => num('busy') === 0 && num('msgId') === 1, 'recall flip');
+    if (num('roundOn') !== 1) continue;            // busted on the first call
+    await sleep(80);
+    const visible = callSel.visible;
+    const was = num('cfCall');
+    click(callSel);
+    await sleep(140);
+    const now = num('cfCall');
+    const streakBefore = num('cfStreak');
+    const side = await flip();
+    recall = { visible, was, now, side,
+               advanced: num('cfStreak') === streakBefore + 1 };
+    await until(settled, 'recall settle');
+  }
+  check('call: the selector stays live between flips', recall && recall.visible,
+        recall ? `visible ${recall.visible}` : 'never reached a streak');
+  check('call: clicking it changes the side mid-streak',
+        recall && recall.now !== recall.was,
+        recall ? `${recall.was} -> ${recall.now}` : '');
+  check('call: the next flip is judged against the new call',
+        recall && recall.advanced === (recall.side === recall.now),
+        recall ? `called ${recall.now}, came up ${recall.side}, streak advanced ${recall.advanced}` : '');
+
   // ---------------------------------------------- topping the ladder
   // Rung 12 is one run in 4096, so it is reached by hand rather than waited
   // for (PITFALLS 12). Everything from the final call onward is the game's.

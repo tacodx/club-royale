@@ -36,6 +36,12 @@ behaviour is the exception and must be checked with `make verify`.
 **Run `make test` before claiming any change works.** The compiler happily emits
 a valid `.sb3` that plays wrongly. Static validity proves nothing about gameplay.
 
+**Never skip `tests/boot_race.js` either.** Every other harness waits for the
+clone count to settle before it touches anything, so none of them can see what
+happens when a player clicks a game while the clones are still spawning - and a
+player does exactly that, one second after the green flag. Three sprites shipped
+broken that way; see the spawn-window rule below.
+
 **Never skip `tests/overlap.js`.** It is the only check that catches a button
 covered by another sprite. The logic harnesses call `startHats()`, which fires a
 click hat directly on a target and bypasses hit-testing entirely, so they will
@@ -83,6 +89,18 @@ plays the traffic to match. If a collision decided the payout instead,
 correctness would depend on frame timing and could not be proven on the fast
 build - which is the guarantee the whole suite rests on. Real crash games work
 this way too.
+
+**Spawn clones inside a warped procedure.** An unwarped `repeat ... create
+clone` takes one frame per clone (PITFALLS 5), and for those frames the
+*original* sprite is still carrying the loop's index. Every broadcast-driven
+sprite here guards its refresh with `if idx > 0` to exclude the original - so a
+refresh arriving mid-spawn passed that guard and drew the original as if it were
+a clone. Worse, the end of the loop resets the index to 0, which then excluded
+the original from every later refresh, so nothing ever hid it again: a stray
+stairs tile sat on top of the lobby, and of every other screen, until the green
+flag. Clones born after that refresh never got one either, so the board came up
+missing its last row. Warping the loop makes the whole thing - clones and the
+reset - one non-yielding step, and there is no window to race.
 
 **Render animation from state, not from an animation script.** A `when I
 receive` animation is restarted by the next broadcast (PITFALLS 2) and takes as
@@ -152,7 +170,9 @@ tests/
   play_crash.js       crash: failure point, climb, cash-out, auto
   play_avia.js        aviamasters: replays every flight from its orb log
   play_coin.js        coin flip: every call, every rung, the coin's own face
-  play_dice.js        dice: every mode and side, the needle and the readout
+  play_dice.js        dice: drives the real slider, every threshold and side
+  boot_race.js        opens every game mid-spawn: the only check for a sprite
+                      left visible on a screen it does not belong to
 tools/
   mock.py        composite every screen at exact sprite coordinates
 ```
@@ -171,10 +191,13 @@ tools/
 | Crash | 96% RTP | rocket climb; failure point drawn at launch, up to 9600x, auto cash-out |
 | Aviamasters | 96% RTP | 14 orbs on the route; rockets halve, cap 250x; every cash-out point worth the same |
 | Coin Flip | 96% RTP | call a side; 12 rungs of exactly 0.96 x 2^n, cash out on any of them |
-| Dice | 96% RTP | roll 0.00-99.99 under or over; 5 chances, 80% to 1.92%, each exactly 0.96 |
+| Dice | 96% RTP | drag the threshold along 0.00-99.99, under or over; 1.01x to 96x, never above 0.96 |
 
 ## Known limitations
 
+- **No rebuy.** Running out of chips ends the session; the green flag starts you
+  at 1000 again. There used to be a free 500 at zero, which made the bankroll
+  meaningless.
 - **No persistence.** A refresh resets chips to 1000. Scratch only persists via
   cloud variables, which need the project shared on scratch.mit.edu, the user
   signed in, and a full Scratcher account. They also store numbers only.

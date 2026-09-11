@@ -11,6 +11,8 @@ this module draws with.
 """
 from deco import *
 from assets_v11 import fit, panel, deco_button, selector, _gold
+import os
+import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 import math, json
 
@@ -19,10 +21,8 @@ ensure_tables()
 T6 = json.load(open(BUILD / "tables6.json"))
 COIN = T6["coin"]
 RUNGS = T6["coinRungs"]
-DICE_CAPS = T6["diceCaps"]
-DICE_WIN = T6["diceWin"]
-DICE_MULT = T6["diceMult"]
 OUTCOMES = T6["diceOutcomes"]
+PREC = T6["dicePrec"]
 
 # ======================================================= coin flip geometry
 FELT_W, FELT_H = 224, 230
@@ -41,11 +41,29 @@ PIP_X = LADDER_XY[0] - LADDER_W / 2 - 8      # rides the gap beside the ladder
 # ============================================================ dice geometry
 DFELT_W, DFELT_H = 440, 214
 DFELT_XY = (0, 6)                  # x -220..220, y 113..-101
-TRACK_W, TRACK_H = 400, 76
-TRACK_XY = (0, -26)                # centred in the felt below the readout
 RAIL_X0, RAIL_X1 = -176, 176       # stage x of a 0.00 roll and a 100.00 roll
 RAIL_Y = -29                       # rail centre, in stage coords
-MARK_XY = (RAIL_X0, RAIL_Y + 5)    # the needle pokes above the rail
+RAIL_H = 22                        # rail inner height
+MARK_XY = (RAIL_X0, RAIL_Y + 5)    # the roll needle pokes above the rail
+
+# The threshold is dragged, so the win/lose split cannot be a baked costume.
+# It is drawn by two plain bars, each exactly the rail's width, that slide so
+# their shared edge sits on the threshold: the left bar is centred at
+# threshold - RAIL_W, the right at threshold + RAIL_W, and whichever colour
+# each wears depends on the side. Everything they overhang is covered by
+# DiceFrame, which is why the frame is a full-stage-width costume.
+#
+# Scaling one bar would have been simpler and does not work: scratch-vm clamps
+# `set size` to 1.5 x stage / costume height, so a costume tall enough to still
+# fill the rail at a 1% width cannot be scaled up at all.
+RAIL_W = RAIL_X1 - RAIL_X0
+FRAME_W, FRAME_H = 480, 80
+FRAME_XY = (0, RAIL_Y - 8)
+
+# the slider's limits, as win-chance in hundredths of a percent
+MIN_WIN, MAX_WIN = T6["diceMinWin"], T6["diceMaxWin"]
+# numerator of the multiplier, so build.py cannot drift from the solver
+HOUSE_NUM = int(T6["house"] * OUTCOMES * T6["dicePrec"])
 
 # Both rooms borrow Crash's big readout, so they borrow its position too:
 # the felt panels are sized and placed around it rather than the other way.
@@ -203,55 +221,89 @@ def dice_felt():
     return save(img, "dice_felt")
 
 
-def dice_tracks():
-    """One full track costume per (mode, side): 5 x 2 = 10.
+def _stage_slice(box):
+    """Exactly what the screen shows behind the rail, as pixels.
 
-    The winning span is painted, so what pays is on the screen rather than in
-    the player's head, and the threshold and multiplier are set in the art
-    from the same solved table the payout uses.
+    DiceFrame has to hide the parts of the sliding bars that fall outside the
+    rail, and those parts cross the felt panel's own border and the backdrop
+    beyond it. Rather than approximate that with a flat fill, the mask is cut
+    from a real composite of the backdrop and the felt at their real positions,
+    so whatever it covers it replaces with itself.
     """
-    W, H = TRACK_W * SC, TRACK_H * SC
-    x0 = (RAIL_X0 - (TRACK_XY[0] - TRACK_W / 2)) * SC      # rail ends, local px
-    x1 = (RAIL_X1 - (TRACK_XY[0] - TRACK_W / 2)) * SC
-    ry = (TRACK_XY[1] + TRACK_H / 2 - RAIL_Y) * SC         # rail centre, local
-    rh = 11 * SC
+    x0, y0, x1, y1 = box                     # stage coords, y0 top
+    bg = Image.open(os.path.join(OUT, "bg.png")).convert("RGBA")
+    felt = Image.open(os.path.join(OUT, "dice_felt.png")).convert("RGBA")
+    bg.alpha_composite(felt, (int((DFELT_XY[0] - DFELT_W / 2 + 240) * SC),
+                              int((180 - DFELT_XY[1] - DFELT_H / 2) * SC)))
+    return bg.crop((int((x0 + 240) * SC), int((180 - y0) * SC),
+                    int((x1 + 240) * SC), int((180 - y1) * SC)))
 
-    for mi, (cap, wins, mult) in enumerate(zip(DICE_CAPS, DICE_WIN, DICE_MULT), 1):
-        for side in ("u", "o"):
-            img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            d = ImageDraw.Draw(img)
-            # UNDER t wins below t; OVER t wins above OUTCOMES - t. Both are
-            # `wins` outcomes wide, which is why one table serves both sides.
-            thresh = wins if side == "u" else OUTCOMES - wins
-            tx = x0 + (x1 - x0) * thresh / OUTCOMES
-            lo_f = WIN_F if side == "u" else LOSE_F
-            hi_f = LOSE_F if side == "u" else WIN_F
-            d.rectangle([x0, ry - rh, tx, ry + rh], fill=lo_f + (255,))
-            d.rectangle([tx, ry - rh, x1, ry + rh], fill=hi_f + (255,))
 
-            lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-            ld = ImageDraw.Draw(lay)
-            ld.rectangle([x0, ry - rh, x1, ry + rh],
-                         outline=(255, 255, 255, 255), width=2)
-            ld.line([(tx, ry - rh - 5 * SC), (tx, ry + rh + 5 * SC)],
-                    fill=(255, 255, 255, 255), width=3)
-            for k in range(0, 101, 5):
-                kx = x0 + (x1 - x0) * k / 100
-                big = (k % 25 == 0)
-                ld.line([(kx, ry + rh), (kx, ry + rh + (6 if big else 3) * SC)],
-                        fill=(255, 255, 255, 235 if big else 120), width=2 if big else 1)
-            img = Image.alpha_composite(img, gold_fill(lay))
+def dice_bands():
+    """Two plain bars, one rail wide, in each of the two colours."""
+    for name, col in [("win", WIN_F), ("lose", LOSE_F)]:
+        img = new(RAIL_W, RAIL_H)
+        ImageDraw.Draw(img).rectangle([0, 0, img.size[0] - 1, img.size[1] - 1],
+                                      fill=col + (255,))
+        save(img, f"dice_band_{name}")
 
-            for k in range(0, 101, 25):
-                kx = x0 + (x1 - x0) * k / 100
-                tracked(img, (kx, ry + rh + 13 * SC), str(k), 7 * SC, 0.8 * SC,
-                        anchor="mm", color=(150, 132, 104), gold=False)
-            lbl = f"{'UNDER' if side == 'u' else 'OVER'} {thresh / 100:.2f}"
-            tracked(img, (x0 + 2 * SC, 11 * SC), lbl, 10 * SC, 2.4 * SC,
-                    anchor="lm")
-            tracked(img, (x1 - 2 * SC, 11 * SC), f"PAYS {mult:.2f}x", 10 * SC,
-                    2.4 * SC, anchor="rm")
-            save(img, f"dice_tr{mi}{side}")
+
+def dice_frame():
+    """The rail window, punched out of a slice of the screen behind it."""
+    x0, y0 = FRAME_XY[0] - FRAME_W / 2, FRAME_XY[1] + FRAME_H / 2
+    x1, y1 = FRAME_XY[0] + FRAME_W / 2, FRAME_XY[1] - FRAME_H / 2
+    img = _stage_slice((x0, y0, x1, y1))
+    W, H = img.size
+
+    def lx(x):                               # stage x -> local px
+        return (x - x0) * SC
+
+    def ly(y):
+        return (y0 - y) * SC
+
+    # punch the rail through
+    win = [lx(RAIL_X0), ly(RAIL_Y + RAIL_H / 2),
+           lx(RAIL_X1) - 1, ly(RAIL_Y - RAIL_H / 2) - 1]
+    hole = Image.new("L", (W, H), 255)
+    ImageDraw.Draw(hole).rectangle(win, fill=0)
+    img.putalpha(Image.fromarray(
+        (np.asarray(img.split()[3]).astype(float) *
+         np.asarray(hole) / 255).astype("uint8")))
+
+    lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lay)
+    ld.rectangle(win, outline=(255, 255, 255, 255), width=2)
+    for k in range(0, 101, 5):
+        kx = lx(RAIL_X0 + (RAIL_X1 - RAIL_X0) * k / 100)
+        big = (k % 25 == 0)
+        ld.line([(kx, ly(RAIL_Y - RAIL_H / 2)),
+                 (kx, ly(RAIL_Y - RAIL_H / 2) + (6 if big else 3) * SC)],
+                fill=(255, 255, 255, 235 if big else 120),
+                width=2 if big else 1)
+    img = Image.alpha_composite(img, gold_fill(lay))
+    for k in range(0, 101, 25):
+        kx = lx(RAIL_X0 + (RAIL_X1 - RAIL_X0) * k / 100)
+        tracked(img, (kx, ly(RAIL_Y - RAIL_H / 2) + 14 * SC), str(k),
+                7 * SC, 0.8 * SC, anchor="mm", color=(150, 132, 104), gold=False)
+    return save(img, "dice_frame")
+
+
+def dice_thresh():
+    """The handle the player drags: a bright rule with a grip above the rail."""
+    img = new(16, 52)
+    W, H = img.size
+    lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(lay)
+    ld.rectangle([W / 2 - 1.5 * SC, 11 * SC, W / 2 + 1.5 * SC, H - 2], 
+                 fill=(255, 255, 255, 255))
+    ld.polygon(chamfer_pts([1, 1, W - 2, 18 * SC], 4 * SC),
+               fill=(255, 255, 255, 255))
+    img = Image.alpha_composite(img, gold_fill(lay))
+    d = ImageDraw.Draw(img)
+    for k in (-3, 0, 3):
+        d.line([(W / 2 + k * SC, 5 * SC), (W / 2 + k * SC, 14 * SC)],
+               fill=(38, 16, 10, 210), width=1)
+    return save(img, "dice_thresh")
 
 
 def dice_marker():
@@ -265,6 +317,15 @@ def dice_marker():
     ImageDraw.Draw(img).line([(W / 2, 8), (W / 2, H - 12)],
                              fill=(38, 16, 10, 220), width=2)
     return save(img, "dice_marker")
+
+
+def chance_plaque():
+    """Caption on top, value beneath - the bet plaque's shape, so the two
+    readouts on the bet bar sit at the same height and read as a pair."""
+    img, (W, H) = panel(72, 38, cut=10 * SC, rule=230, width=2)
+    tracked(img, (W / 2, 11 * SC), "CHANCE", 7 * SC, 1.4 * SC,
+            color=(152, 130, 98), anchor="mm", gold=False)
+    return save(img, "plq_chance")
 
 
 # =========================================================== lobby icons
@@ -313,7 +374,9 @@ def _geometry():
                "coinFrames": COIN_FRAMES, "coinHeads": COIN_HEADS,
                "coinTails": COIN_TAILS,
                "railX0": RAIL_X0, "railX1": RAIL_X1, "railY": RAIL_Y,
-               "markY": MARK_XY[1], "trackXY": list(TRACK_XY)},
+               "railW": RAIL_W, "markY": MARK_XY[1],
+               "frameXY": list(FRAME_XY),
+               "minWin": MIN_WIN, "maxWin": MAX_WIN},
               open(BUILD / "geom6.json", "w"))
 
 
@@ -321,13 +384,13 @@ def _geometry():
 def build():
     from assets_v2 import lobby_tile
     coin_felt(); coins(); coin_ladder(); coin_pip()
-    dice_felt(); dice_tracks(); dice_marker()
+    dice_felt(); dice_bands(); dice_frame(); dice_thresh()
+    dice_marker()
     deco_button("btn_flip", "FLIP", 108, 38, primary=True, fs=15, tracking=6)
     deco_button("btn_roll", "ROLL", 108, 38, primary=True, fs=15, tracking=6)
     for i, s in enumerate(["HEADS", "TAILS"], 1):
         selector(f"sel_call{i}", "CALL", s, w=64)
-    for i, cap in enumerate(DICE_CAPS, 1):
-        selector(f"sel_chance{i}", "CHANCE", cap, w=64)
+    chance_plaque()
     for i, s in enumerate(["UNDER", "OVER"], 1):
         selector(f"sel_side{i}", "ROLL", s, w=64)
     lobby_tile("lt_coin", "COIN FLIP", ic_coin)

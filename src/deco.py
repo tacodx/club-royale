@@ -21,6 +21,12 @@ GOLD_D= (122, 94, 24)
 CREAM = (242, 233, 214)
 GREY  = (128, 116, 122)
 
+# the lobby table: 43 units from the top like the standard one, but tall
+# enough for three rows of tiles. 43 + 310 = 353 of the 360-unit stage,
+# so its felt runs from stage y 137 down to y -173.
+LOBBY_TABLE_H = 310
+LOBBY_FELT_BOTTOM = 180 - 43 - LOBBY_TABLE_H
+
 FB = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 FR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FS = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
@@ -180,7 +186,10 @@ def chevron(img, cx, cy, w, h, n=3, step=5, up=True, col=GOLD, alpha=170):
 
 
 # ============================================================== backdrop
-def backdrop(name="bg"):
+def backdrop(name="bg", table_h=262, bottom_bar=True):
+    """The casino table. The lobby uses a taller one with no bet-bar strip:
+    it shows no bet controls, so the bottom 44 units are dead space there,
+    and three rows of tiles do not fit in the 262-tall table."""
     W, H = 480 * SC, 360 * SC
     img = Image.new("RGBA", (W, H), INK + (255,))
 
@@ -191,7 +200,7 @@ def backdrop(name="bg"):
     img = Image.alpha_composite(img, lay.filter(ImageFilter.GaussianBlur(160)))
 
     # the table
-    tw, th = 448 * SC, 262 * SC
+    tw, th = 448 * SC, int(table_h * SC)
     tx, ty = (W - tw) // 2, int(43 * SC)
     tbl = Image.new("RGBA", (tw, th), (0, 0, 0, 0))
     pts = chamfer_pts([0, 0, tw - 1, th - 1], 24 * SC)
@@ -240,14 +249,15 @@ def backdrop(name="bg"):
     # bars
     d = ImageDraw.Draw(img)
     d.rectangle([0, 0, W, 34 * SC], fill=INK + (255,))
-    d.rectangle([0, H - 44 * SC, W, H], fill=INK + (255,))
     hairline(img, 34 * SC, 0, W)
-    lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(lay).line([(0, H - 44 * SC), (W, H - 44 * SC)],
-                             fill=(255, 255, 255, 255), width=3)
-    ImageDraw.Draw(lay).line([(0, H - 44 * SC - 8), (W, H - 44 * SC - 8)],
-                             fill=(255, 255, 255, 140), width=1)
-    img.alpha_composite(gold_fill(lay))
+    if bottom_bar:
+        d.rectangle([0, H - 44 * SC, W, H], fill=INK + (255,))
+        lay = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+        ImageDraw.Draw(lay).line([(0, H - 44 * SC), (W, H - 44 * SC)],
+                                 fill=(255, 255, 255, 255), width=3)
+        ImageDraw.Draw(lay).line([(0, H - 44 * SC - 8), (W, H - 44 * SC - 8)],
+                                 fill=(255, 255, 255, 140), width=1)
+        img.alpha_composite(gold_fill(lay))
 
     tracked(img, (16 * SC, 17 * SC), "CHIPS", 11 * SC, anchor="lm")
     return save(img, name)
@@ -255,4 +265,5 @@ def backdrop(name="bg"):
 
 if __name__ == "__main__":
     backdrop()
+    backdrop("bg_lobby", table_h=LOBBY_TABLE_H, bottom_bar=False)
     print("ok")

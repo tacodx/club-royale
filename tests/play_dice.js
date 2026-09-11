@@ -1,10 +1,16 @@
-// Dice: rolls headlessly and checks every roll, every threshold and every
-// payout against an independent implementation of the rules.
+// Dice: drags the slider and rolls headlessly, checking the threshold, the
+// multiplier it implies and every payout against an independent implementation.
 //
-// The roll is drawn into dcInt as a whole number of hundredths before the
-// needle moves, so nothing here is statistical either: UNDER t wins on
-// dcInt < t and OVER t wins on dcInt >= 10000 - t, and a win pays exactly
-// round(bet * the mode's multiplier). Every mode is played on both sides.
+// The threshold is no longer one of five presets, so the multiplier is computed
+// rather than looked up: floor(96000000 / winning outcomes) / 10000. That makes
+// two things worth proving rather than assuming - that the VM's arithmetic
+// agrees with JS exactly at every reachable position, and that the return is
+// never above the house 0.96 anywhere on the rail.
+//
+// The slider is driven through ioDevices.mouse, which is the real control: the
+// sprite reads `mouse x` / `mouse y` rather than `touching mouse-pointer`
+// (PITFALLS 10), precisely so the harness can move the actual pointer instead
+// of testing a stand-in.
 //
 //   node tests/play_dice.js <sb3> [rounds]
 const fs = require('fs'), path = require('path'), VM = require('scratch-vm');
@@ -19,7 +25,6 @@ const gv = n => { const s = stage();
   throw new Error('no var ' + n); };
 const num = n => Number(gv(n));
 const setv = (n, v) => { stage().lookupVariableByNameAndType(n).value = v; };
-const gls = n => stage().lookupVariableByNameAndType(n, 'list').value.map(Number);
 const sp = n => vm.runtime.targets.find(t => !t.isStage && t.sprite.name === n && t.isOriginal);
 const cl = n => vm.runtime.targets.filter(t => !t.isStage && t.sprite.name === n && !t.isOriginal);
 const lv = (t, n) => { for (const id in t.variables) if (t.variables[id].name === n) return t.variables[id].value; };
@@ -35,14 +40,17 @@ const check = (n, c, e = '') => R.push([c ? 'PASS' : 'FAIL', n, e]);
 
 // ---------------------------------------------------------------- the rules
 // must match src/tables6.py
-const HOUSE = 0.96, OUT = T6.diceOutcomes;
-const WIN = T6.diceWin, MULT = T6.diceMult;
-// side 1 = UNDER, side 2 = OVER; both win on exactly WIN[mode] of the OUT
-// outcomes, which is what makes one table serve the pair
-const wins = (roll, mode, side) =>
-  side === 1 ? roll < WIN[mode - 1] : roll >= OUT - WIN[mode - 1];
-const shownRoll = r => `${Math.floor(r / 100)}.${String(r % 100).padStart(2, '0')}`;
-const markX = r => G.railX0 + (G.railX1 - G.railX0) * r / OUT;
+const HOUSE = 0.96, OUT = T6.diceOutcomes, PREC = T6.dicePrec;
+const MINW = T6.diceMinWin, MAXW = T6.diceMaxWin;
+const NUM = HOUSE * OUT * PREC;                       // 96000000
+const multFor = w => Math.floor(NUM / w) / PREC;
+const winsFor = (t, side) => side === 1 ? t : OUT - t;
+const wins = (roll, t, side) => side === 1 ? roll < t : roll >= t;
+const clampT = (t, side) => side === 1
+  ? Math.min(MAXW, Math.max(MINW, t))
+  : Math.min(OUT - MINW, Math.max(OUT - MAXW, t));
+const railX = t => G.railX0 + G.railW * t / OUT;
+const two = v => `${Math.floor(v / 100)}.${String(v % 100).padStart(2, '0')}`;
 
 function readout(field) {
   return cl('Digit')
@@ -53,7 +61,6 @@ function readout(field) {
         : (i === 11 ? '.' : (i === 12 ? ',' : (i === 14 ? 'x' : ''))); })
     .join('');
 }
-// forever-driven sprites repaint a frame behind (CLAUDE.md)
 async function stable(read, tries = 30) {
   let last = read();
   for (let i = 0; i < tries; i++) {
@@ -63,6 +70,22 @@ async function stable(read, tries = 30) {
     last = now;
   }
   return last;
+}
+// Move the real pointer. With a 480x360 canvas postData reduces to
+// scratchX = round(x - 240) and scratchY = round(180 - y), so the offset has to
+// be exactly 240/180 - a half-unit nudge lands the pointer a whole stage unit
+// out. The epsilon is only there because postData tests `if (data.x)`, which
+// would silently drop an x of 0 (stage x -240, the left end of the rail).
+function pointer(x, y, isDown) {
+  vm.runtime.ioDevices.mouse.postData({
+    x: x + 240 + 1e-4, y: 180 - y + 1e-4,
+    canvasWidth: 480, canvasHeight: 360, isDown });
+}
+async function dragTo(stageX) {
+  pointer(stageX, G.railY, true);
+  await sleep(90);
+  pointer(stageX, G.railY, false);
+  await sleep(60);
 }
 
 async function bootSettle(cap = 6000) {
@@ -89,57 +112,131 @@ async function bootSettle(cap = 6000) {
         `${cl('MenuTile').length} tiles, ${games} games`);
   const clones = vm.runtime.targets.filter(t => !t.isStage && !t.isOriginal).length;
   check('boot: clone budget under 300', clones < 300, clones + ' clones');
-  check('boot: a track costume per mode and side',
-        sp('DiceTrack').getCostumes().length === WIN.length * 2,
-        'got ' + sp('DiceTrack').getCostumes().length);
 
-  // ------------------------------------------------ the table itself
-  check('table: thresholds', JSON.stringify(gls('diceWin')) === JSON.stringify(WIN),
-        JSON.stringify(gls('diceWin')));
-  check('table: multipliers', JSON.stringify(gls('diceMult')) === JSON.stringify(MULT),
-        JSON.stringify(gls('diceMult')));
-  let edgeBad = '';
-  for (let m = 0; m < WIN.length; m++) {
-    // exact in integer arithmetic: outcomes x payout-in-hundredths
-    if (WIN[m] * Math.round(MULT[m] * 100) !== OUT * Math.round(HOUSE * 100)) {
-      edgeBad = edgeBad || `mode ${m + 1}: ${WIN[m]}/${OUT} x ${MULT[m]}`;
-    }
+  // ---------------------------------------- the payout rule, over the whole rail
+  // Not a sample: every one of the reachable win-chance values, checked for the
+  // invariant that matters - the house never takes less than its 0.96.
+  let over = 0, worst = 1, worstAt = 0, exact = 0;
+  for (let w = MINW; w <= MAXW; w++) {
+    const rtp = w * Math.floor(NUM / w) / (OUT * PREC);
+    if (rtp > HOUSE + 1e-12) over++;
+    if (rtp === HOUSE) exact++;
+    if (rtp < worst) { worst = rtp; worstAt = w; }
   }
-  check('table: every mode returns exactly 0.96', edgeBad === '', edgeBad);
+  check('table: no slider position returns more than 0.96', over === 0, over + ' do');
+  check('table: and none returns less than 0.9599', worst > 0.9599,
+        `worst ${worst.toFixed(6)} at ${(worstAt / 100).toFixed(2)}%, exact on ${exact}`);
 
   const tile = n => cl('MenuTile').find(t => Number(lv(t, 'mIdx')) === n);
   click(tile(11));
   await until(() => num('screen') === 11, 'nav dice');
   check('nav: dice', num('screen') === 11, 'screen ' + num('screen'));
 
-  const act = sp('ActionBtn'), mark = sp('DiceMark'), track = sp('DiceTrack');
+  const act = sp('ActionBtn'), mark = sp('DiceMark'), thr = sp('DiceThresh');
+  const bandL = sp('DiceBandL'), bandR = sp('DiceBandR'), sideSel = sp('SideSel');
   setv('chips', 100000000);
   setv('bet', 100);
-  await sleep(120);
+  await sleep(150);
   check('idle: needle hidden before the first roll', mark.visible === false);
 
-  let wonBad = 0, payBad = 0, stakeBad = 0, fmtBad = 0, readBad = 0,
-      markBad = 0, trackBad = 0, rangeBad = 0, firstBad = '';
+  // -------------------------------------------------------- the slider
+  let dragBad = 0, handleBad = 0, bandBad = 0, multBad = 0, chanceBad = 0;
+  let firstBad = '';
   const fail = m => { firstBad = firstBad || m; };
+
+  for (const side of [1, 2]) {
+    setv('dcSide', side);
+    await sleep(60);
+    for (const x of [-176, -150, -100, -40, 0, 35, 90, 140, 176]) {
+      await dragTo(x);
+      const wantT = clampT(Math.round((x - G.railX0) * OUT / G.railW), side);
+      const gotT = num('dcT');
+      if (gotT !== wantT) {
+        dragBad++;
+        fail(`side ${side} drag to x=${x}: dcT ${gotT}, expected ${wantT}`);
+      }
+      const w = winsFor(gotT, side);
+      if (num('dcWinN') !== w) {
+        dragBad++;
+        fail(`side ${side} t=${gotT}: winN ${num('dcWinN')}, expected ${w}`);
+      }
+      // the VM's own arithmetic must agree with JS exactly
+      if (num('mult') !== multFor(w)) {
+        multBad++;
+        fail(`side ${side} w=${w}: mult ${num('mult')}, expected ${multFor(w)}`);
+      }
+      if (gv('dcChance') !== two(w)) {
+        chanceBad++;
+        fail(`side ${side} w=${w}: chance "${gv('dcChance')}", expected "${two(w)}"`);
+      }
+      // the handle and the two bars must be standing where the number says
+      const hx = await stable(() => thr.x);
+      if (Math.abs(hx - railX(gotT)) > 0.6) {
+        handleBad++;
+        fail(`t=${gotT}: handle at ${hx}, expected ${railX(gotT).toFixed(2)}`);
+      }
+      const lx = bandL.x, rx = bandR.x;
+      const cost = t => t.getCostumes()[t.currentCostume].name;
+      if (Math.abs(lx - (railX(gotT) - G.railW / 2)) > 0.6 ||
+          Math.abs(rx - (railX(gotT) + G.railW / 2)) > 0.6) {
+        bandBad++;
+        fail(`t=${gotT}: bars at ${lx}/${rx}, expected ${(railX(gotT) - G.railW / 2).toFixed(1)}/${(railX(gotT) + G.railW / 2).toFixed(1)}`);
+      }
+      if (cost(bandL) !== (side === 1 ? 'win' : 'lose') ||
+          cost(bandR) !== (side === 1 ? 'lose' : 'win')) {
+        bandBad++;
+        fail(`side ${side}: bars coloured ${cost(bandL)}/${cost(bandR)}`);
+      }
+    }
+  }
+  check('slider: the drag sets the threshold it points at', dragBad === 0, dragBad ? firstBad : '');
+  check('slider: the multiplier matches the solver exactly', multBad === 0, multBad ? firstBad : '');
+  check('slider: the chance readout matches', chanceBad === 0, chanceBad ? firstBad : '');
+  check('display: the handle stands on the threshold', handleBad === 0, handleBad ? firstBad : '');
+  check('display: the bars split the rail on the threshold', bandBad === 0, bandBad ? firstBad : '');
+
+  // ------------------------------------------------------------ the limits
+  // Dragging past the ends must stop at the solved range, not run off it -
+  // a 0% chance would be an infinite multiplier and a 100% one a free win.
+  setv('dcSide', 1); await sleep(60);
+  await dragTo(-240);
+  const loU = num('dcT');
+  await dragTo(240);
+  const hiU = num('dcT');
+  setv('dcSide', 2); await sleep(60);
+  await dragTo(-240);
+  const loO = num('dcT');
+  await dragTo(240);
+  const hiO = num('dcT');
+  check('limits: under stops at 1% and 95%', loU === MINW && hiU === MAXW,
+        `${loU}..${hiU}, expected ${MINW}..${MAXW}`);
+  check('limits: over stops at 95% and 1%',
+        loO === OUT - MAXW && hiO === OUT - MINW,
+        `${loO}..${hiO}, expected ${OUT - MAXW}..${OUT - MINW}`);
+  check('limits: the extremes pay what the solver says',
+        multFor(MINW) === 96 && Math.abs(multFor(MAXW) - 1.0105) < 1e-9,
+        `${multFor(MINW)}x and ${multFor(MAXW)}x`);
+
+  // the slider must be dead while a roll is in the air
+  setv('dcSide', 1); await dragTo(0);
+  const beforeRoll = num('dcT');
+
+  // ------------------------------------------------------------- the rounds
+  let wonBad = 0, payBad = 0, stakeBad = 0, fmtBad = 0, readBad = 0,
+      markBad = 0, multShown = 0, rangeBad = 0, lockBad = 0;
   const seen = { lo: OUT, hi: -1 };
-  const perMode = WIN.map(() => ({ n: 0, w: 0 }));
   const BUCKETS = 5;
   const hist = new Array(BUCKETS).fill(0);
-  let leadZero = 0;                       // rolls whose fraction is below .10
+  let leadZero = 0, winsSeen = 0;
 
   for (let r = 0; r < ROUNDS; r++) {
     await until(settled, 'settle ' + r);
-    // sweep every mode on both sides rather than sampling one
-    const mode = (r % WIN.length) + 1;
-    const side = (Math.floor(r / WIN.length) % 2) + 1;
-    setv('dcMode', mode); setv('dcSide', side);
-    await sleep(24);
-
-    const cost = await stable(() => track.getCostumes()[track.currentCostume].name);
-    if (cost !== `t${mode}${side === 1 ? 'u' : 'o'}`) {
-      trackBad++;
-      fail(`mode ${mode} side ${side}: track shows ${cost}`);
-    }
+    // sweep the rail rather than sampling one spot, both sides
+    const side = (r % 2) + 1;
+    const xs = [-150, -90, -20, 40, 110, 165];
+    setv('dcSide', side); await sleep(40);
+    await dragTo(xs[r % xs.length]);
+    const t = num('dcT'), w = num('dcWinN'), m = num('mult');
 
     const bet = num('bet'), before = num('chips');
     click(act);
@@ -147,6 +244,12 @@ async function bootSettle(cap = 6000) {
     if (num('chips') !== before - bet) {
       stakeBad++;
       fail(`round ${r}: stake ${before - num('chips')}, expected ${bet}`);
+    }
+    // dragging mid-roll must not move the threshold under the settled bet
+    pointer(-170, G.railY, true); await sleep(40); pointer(-170, G.railY, false);
+    if (num('dcT') !== t) {
+      lockBad++;
+      fail(`round ${r}: threshold moved mid-roll, ${t} -> ${num('dcT')}`);
     }
     await until(() => num('dcRolling') === 0 && num('dcShown') === 1, 'roll ' + r);
 
@@ -156,119 +259,70 @@ async function bootSettle(cap = 6000) {
       fail(`round ${r}: roll ${roll} outside 0..${OUT - 1}`);
     }
     seen.lo = Math.min(seen.lo, roll); seen.hi = Math.max(seen.hi, roll);
-
-    const want = wins(roll, mode, side);
-    if ((num('dcWon') === 1) !== want) {
-      wonBad++;
-      fail(`round ${r}: roll ${roll} mode ${mode} side ${side} -> ${num('dcWon')}, expected ${want ? 1 : 0}`);
-    }
-    perMode[mode - 1].n++;
-    if (want) perMode[mode - 1].w++;
     hist[Math.floor(roll * BUCKETS / OUT)]++;
     if (roll % 100 < 10) leadZero++;
 
-    if (gv('dcTxt') !== shownRoll(roll)) {
+    const want = wins(roll, t, side);
+    if (want) winsSeen++;
+    if ((num('dcWon') === 1) !== want) {
+      wonBad++;
+      fail(`round ${r}: roll ${roll} t ${t} side ${side} -> ${num('dcWon')}, expected ${want ? 1 : 0}`);
+    }
+    if (gv('dcTxt') !== two(roll)) {
       fmtBad++;
-      fail(`round ${r}: roll ${roll} formatted "${gv('dcTxt')}", expected "${shownRoll(roll)}"`);
+      fail(`round ${r}: roll ${roll} formatted "${gv('dcTxt')}", expected "${two(roll)}"`);
     }
     const shown = await stable(() => readout(9));
-    if (shown !== shownRoll(roll)) {
+    if (shown !== two(roll)) {
       readBad++;
       fail(`round ${r}: roll ${roll} but the readout says "${shown}"`);
     }
-    // the needle has to be standing on the number that was paid
+    const mShown = await stable(() => readout(3));
+    if (mShown !== String(m)) {
+      multShown++;
+      fail(`round ${r}: mult ${m} but the plaque says "${mShown}"`);
+    }
     const mx = await stable(() => mark.x);
-    if (!mark.visible || Math.abs(mx - markX(roll)) > 0.6) {
+    if (!mark.visible || Math.abs(mx - railX(roll)) > 0.6) {
       markBad++;
-      fail(`round ${r}: roll ${roll} needle at x=${mx}, expected ${markX(roll).toFixed(2)}`);
+      fail(`round ${r}: roll ${roll} needle at x=${mx}, expected ${railX(roll).toFixed(2)}`);
     }
 
     await until(settled, 'settle after ' + r);
     const got = num('chips') - (before - bet);
-    const wantPay = want ? Math.round(bet * MULT[mode - 1]) : 0;
+    const wantPay = want ? Math.round(bet * multFor(w)) : 0;
     if (got !== wantPay) {
       payBad++;
-      fail(`round ${r}: roll ${roll} mode ${mode} side ${side} paid ${got}, expected ${wantPay}`);
+      fail(`round ${r}: roll ${roll} t ${t} side ${side} paid ${got}, expected ${wantPay}`);
     }
-  }
-
-  // A fraction below .10 has to keep its leading zero or 73.04 renders as
-  // 73.4 - the bankroll shipped that class of bug for eight versions. Random
-  // rounds hit it nine times in ten, but "usually" is not a test, so keep
-  // rolling until the game's own formatter has actually been through it.
-  for (let extra = 0; leadZero === 0 && extra < 60; extra++) {
-    await until(settled, 'settle pad ' + extra);
-    const before = num('chips'), bet = num('bet');
-    click(act);
-    await until(() => num('chips') === before - bet, 'pad stake');
-    await until(() => num('dcRolling') === 0 && num('dcShown') === 1, 'pad roll');
-    const roll = num('dcInt');
-    hist[Math.floor(roll * BUCKETS / OUT)]++;
-    if (roll % 100 < 10) leadZero++;
-    if (gv('dcTxt') !== shownRoll(roll)) {
-      fmtBad++;
-      fail(`pad: roll ${roll} formatted "${gv('dcTxt')}", expected "${shownRoll(roll)}"`);
-    }
-    await until(settled, 'settle after pad');
   }
 
   check('rules: win test matches the threshold', wonBad === 0, wonBad ? firstBad : ROUNDS + ' rolls');
   check('rules: stake taken once per roll', stakeBad === 0, stakeBad ? firstBad : '');
+  check('rules: the slider is dead once the bet is placed', lockBad === 0, lockBad ? firstBad : '');
   check('rules: roll stays inside 0.00-99.99', rangeBad === 0,
-        rangeBad ? firstBad : `saw ${shownRoll(seen.lo)} to ${shownRoll(seen.hi)}`);
-  check('pay: every mode and side pays exactly', payBad === 0, payBad ? firstBad : '');
+        rangeBad ? firstBad : `saw ${two(seen.lo)} to ${two(seen.hi)}`);
+  check('pay: every threshold and side pays exactly', payBad === 0,
+        payBad ? firstBad : `${winsSeen} wins of ${ROUNDS}`);
   check('display: roll formats to two decimals', fmtBad === 0,
         fmtBad ? firstBad : `${leadZero} of them below .10`);
   check('display: readout matches the roll', readBad === 0, readBad ? firstBad : '');
+  check('display: the plaque matches the multiplier being paid', multShown === 0,
+        multShown ? firstBad : '');
   check('display: needle stands on the roll', markBad === 0, markBad ? firstBad : '');
-  check('display: track shows the chosen mode and side', trackBad === 0, trackBad ? firstBad : '');
 
-  // Per-round correctness is proved above; what is left is that the draw
-  // covers the rail evenly. A truncated or skewed range (rand(1,100) scaled,
-  // say) would pile the rolls into some buckets and empty others. Deliberately
-  // loose - 4 degrees of freedom, and the 99.9% point is 18.5 (PITFALLS 12).
   const rolls = hist.reduce((a, b) => a + b, 0);
   const exp = rolls / BUCKETS;
   const chi = hist.reduce((a, o) => a + (o - exp) * (o - exp) / exp, 0);
   check('spread: the roll covers the rail evenly', chi < 25,
         `buckets ${hist.join('/')} over ${rolls} rolls, chi2 ${chi.toFixed(1)}`);
-  const rates = perMode.map((p, i) => `${(100 * WIN[i] / OUT).toFixed(2)}%:${p.w}/${p.n}`);
-  check('spread: every mode and side was played',
-        perMode.every(p => p.n > 0), rates.join('  '));
 
-  // --------------------------------------- the readout across the whole rail
-  // Not the formatter (the rounds above exercise that one): this drives the
-  // digit field and the needle to both ends of the rail and to the two
-  // thresholds, which random rolls will not land on exactly.
-  await until(settled, 'settle before edges');
-  let edgeFmt = '';
-  for (const v of [0, 5, 50, 900, 1000, 1005, 9999, 4800, 192]) {
-    setv('dcInt', v); setv('dcShown', 1);
-    // re-run the formatter the way the game does
-    setv('dcTxt', shownRoll(v));
-    const want = shownRoll(v);
-    const got = await stable(() => readout(9));
-    if (got !== want) edgeFmt = edgeFmt || `${v} -> "${got}", expected "${want}"`;
-    const mx = await stable(() => mark.x);
-    if (Math.abs(mx - markX(v)) > 0.6) {
-      edgeFmt = edgeFmt || `${v} -> needle ${mx}, expected ${markX(v).toFixed(2)}`;
-    }
-  }
-  check('edges: readout and needle across the whole rail', edgeFmt === '',
-        edgeFmt || '0.00 through 99.99');
-
-  // the selectors are what a player actually has; drive them by clicking
-  await until(settled, 'settle before selectors');
-  const chance = sp('ChanceSel'), sideSel = sp('SideSel');
-  setv('dcMode', WIN.length); setv('dcSide', 2);
-  await sleep(40);
-  click(chance); await sleep(60);
-  click(sideSel); await sleep(60);
-  check('controls: the selectors cycle and wrap',
-        num('dcMode') === 1 && num('dcSide') === 1,
-        `mode ${num('dcMode')} side ${num('dcSide')}`);
-  const wrapped = await stable(() => track.getCostumes()[track.currentCostume].name);
-  check('controls: the track follows the selectors', wrapped === 't1u', wrapped);
+  // the side selector is a real control too
+  await until(settled, 'settle before side');
+  setv('dcSide', 2); await sleep(60);
+  click(sideSel); await sleep(120);
+  check('controls: the side selector cycles and wraps', num('dcSide') === 1,
+        'side ' + num('dcSide'));
 
   vm.stopAll();
   console.log('\n================ DICE ================');

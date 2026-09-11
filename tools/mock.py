@@ -23,8 +23,8 @@ BKV = A11.BUCKET_VALS
 DCH = list("0123456789") + [".", ",", "", "x", "M", "B"]  # "" is the blank, d13
 
 
-def stage():
-    return Image.open(f"{A}/bg.png").convert("RGBA")
+def stage(name="bg"):
+    return Image.open(f"{A}/{name}.png").convert("RGBA")
 
 
 def put(c, n, x, y, size=100, ghost=0):
@@ -64,15 +64,17 @@ SPOTY = [50] + [24 + ((n - 1) % 3) * 26 for n in range(1, 37)] + \
 
 
 def lobby():
-    c = stage(); put(c, "title", 0, 106)
-    # eleven tiles: six across, five centred beneath (see build.py)
+    c = stage("bg_lobby"); put(c, "title", 0, 106)
+    # eleven tiles, four over four over three (see build.py)
     for i, t in enumerate(["lt_slots", "lt_plinko", "lt_mines", "lt_bj",
                            "lt_roulette", "lt_stairs", "lt_duck", "lt_crash",
                            "lt_avia", "lt_coin", "lt_dice"], 1):
-        if i <= 6:
-            put(c, t, -185 + 74 * (i - 1), 16)
+        if i <= 4:
+            put(c, t, -132 + 88 * (i - 1), 33)
+        elif i <= 8:
+            put(c, t, -132 + 88 * (i - 5), -47)
         else:
-            put(c, t, -148 + 74 * (i - 7), -62)
+            put(c, t, -88 + 88 * (i - 9), -127)
     chrome(c); return c
 
 
@@ -279,18 +281,29 @@ def coin(streak=4, frame=1):
     chrome(c); return c
 
 
-def dice(mode=2, side="u", roll=None):
+def dice(thresh=4800, side="u", roll=None):
     import sys
     sys.path.insert(0, str(ROOT / "src"))
     import assets_v6 as AV6
     c = stage()
     put(c, "dice_felt", *AV6.DFELT_XY)
-    put(c, f"dice_tr{mode}{side}", *AV6.TRACK_XY)
+    tx = AV6.roll_x(thresh)
+    # the two bars share an edge on the threshold; DiceFrame masks the rest
+    win = "dice_band_win", "dice_band_lose"
+    lo, hi = (win if side == "u" else win[::-1])
+    put(c, lo, tx - AV6.RAIL_W / 2, AV6.RAIL_Y)
+    put(c, hi, tx + AV6.RAIL_W / 2, AV6.RAIL_Y)
+    put(c, "dice_frame", *AV6.FRAME_XY)
+    put(c, "dice_thresh", tx, AV6.RAIL_Y + 10)
+    winN = thresh if side == "u" else AV6.OUTCOMES - thresh
+    mult = AV6.HOUSE_NUM // winN / AV6.PREC
     if roll is not None:
         put(c, "dice_marker", AV6.roll_x(roll), AV6.MARK_XY[1])
         dig(c, f"{roll // 100}.{roll % 100:02d}", *AV6.MULT_XY_C, AV6.MULT_GAP_C)
+    put(c, "plq_mult", 0, 163); dig(c, f"{mult:g}", 86, 163, 14)
     betbar(c)
-    put(c, f"sel_chance{mode}", -45, -152)
+    put(c, "plq_chance", -45, -152)
+    dig(c, f"{winN // 100}.{winN % 100:02d}", -45, -157, 14)
     put(c, "btn_roll", 52, -152)
     put(c, f"sel_side{1 if side == 'u' else 2}", 158, -152)
     chrome(c); return c
@@ -310,8 +323,8 @@ SCREENS = {
     "avia_idle": lambda: avia(0, "1.00", False),
     "coin_streak": lambda: coin(4, 1),
     "coin_idle": lambda: coin(0, 1),
-    "dice_win": lambda: dice(2, "u", 2314),
-    "dice_over": lambda: dice(4, "o", 9712),
+    "dice_win": lambda: dice(4829, "u", 2314),
+    "dice_over": lambda: dice(9012, "o", 9712),
     "roulette_bets": lambda: roulette(False),
     "roulette_spin": lambda: roulette(True),
     "blackjack_idle": lambda: blackjack("idle"),
