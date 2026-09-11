@@ -261,6 +261,14 @@ async function bootSettle(cap = 6000) {
     const side = await flip();
     recall = { visible, was, now, side,
                advanced: num('cfStreak') === streakBefore + 1 };
+    // A correct call leaves the run live, so there is nothing to wait for -
+    // close it out rather than waiting on `settled`, which cannot become true
+    // while roundOn is still 1. Waiting for it here hung the harness at real
+    // speed the first time this flip came up a winner.
+    if (num('roundOn') === 1) {
+      click(cash);
+      await until(() => num('cfCashed') === 1 || num('busy') === 1, 'recall cash');
+    }
     await until(settled, 'recall settle');
   }
   check('call: the selector stays live between flips', recall && recall.visible,
