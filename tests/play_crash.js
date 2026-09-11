@@ -104,6 +104,7 @@ async function bootSettle(cap = 6000) {
 
   let landBad = 0, climbBad = 0, payBad = 0, ditchBad = 0, firstBad = '';
   let cashes = 0, ditches = 0, planeMoved = 0, readoutBad = 0;
+  let settledBad = 0, readoutNote = '', settledNote = '';
   let highest = 0, lowest = Infinity;
 
   for (let r = 0; r < ROUNDS; r++) {
@@ -210,21 +211,55 @@ async function bootSettle(cap = 6000) {
     if (plane.x !== px || plane.y !== py) moved = true;
 
     if (num('roundOn') === 1) {
-      let shown = readout(9);
-      for (let i = 0; i < 60 && shown !== String(num('mult')) + 'x'; i++) {
-        await sleep(12); shown = readout(9);
+      // In flight the readout can only ever be a tick or two behind: eight
+      // Digit clones repaint from `mult` in their own forever loops while the
+      // climb advances `mult` every frame, so instantaneous equality is not a
+      // thing that happens. Measured, it holds on 0 of 110 in-flight samples -
+      // on this build and on the one before Coin Flip and Dice alike. The old
+      // assertion asked for exactly that and passed only when the flight
+      // happened to end inside its 720ms poll, which is why it went red here
+      // once at real speed and never on the fast build.
+      //
+      // What is worth asserting is that the readout is showing a real point on
+      // THIS climb rather than a stale figure or a mix of two: every sample
+      // above was one of the previous few ticks, never garbage.
+      const shown = readout(9);
+      const t = num('avTick');
+      const near = new Set([String(num('mult')) + 'x']);
+      for (let k = -4; k <= 1; k++) {
+        if (t + k > 0) near.add(String(multAtTick(t + k)) + 'x');
       }
-      if (shown !== String(num('mult')) + 'x') readoutBad++;
+      if (!near.has(shown)) {
+        readoutBad++;
+        readoutNote = readoutNote ||
+          `in flight: tick ${t}, mult ${num('mult')}, readout "${shown}"`;
+      }
       click(cash);
     }
     await until(settled, 'settle after ui', 4000);
+    // Settled, `mult` stops moving and the forever loops catch up, so here the
+    // readout must agree exactly - this is the half of the check that is
+    // deterministic, and it is the one that would catch a readout wired to the
+    // wrong variable or truncated by too few digit clones.
+    {
+      const wantTxt = String(num('mult')) + 'x';
+      let shown = readout(9);
+      for (let i = 0; i < 60 && shown !== wantTxt; i++) { await sleep(12); shown = readout(9); }
+      if (shown !== wantTxt) {
+        settledBad++;
+        settledNote = settledNote || `settled: mult ${num('mult')}, readout "${shown}"`;
+      }
+    }
   }
 
   check('ui: LAUNCH hidden in flight', flyHidden, flyHidden ? 'hidden' : 'still shown');
   check('ui: CASH OUT live in flight', cashShown, cashShown ? 'shown' : 'missing');
   check('ui: the rocket climbs', moved,
         moved ? `moves with the multiplier (${climbTried} flights)` : 'never moved');
-  check('ui: crash readout matches the multiplier', readoutBad === 0, readoutBad + ' faults');
+  check('ui: in flight the readout tracks the climb', readoutBad === 0,
+        readoutBad ? readoutNote : 'always a point on the current climb');
+  check('ui: settled, the readout matches the multiplier exactly',
+        settledBad === 0, settledBad ? settledNote : '');
 
   // -------------------------------------------------- auto cash-out is exact
   let autoBad = 0, autoFired = 0, autoNote = '';
