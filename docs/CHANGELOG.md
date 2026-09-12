@@ -3,6 +3,57 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v4.2
+
+**Slots is a real machine now.** The old game rolled three independent
+`rand(1, 8)` and paid a hand-written ladder for 94.3% RTP: a 7 was exactly as
+likely as a club, there were no reels to speak of and no lines at all, and the
+only tension was whether three uniform draws happened to agree. It was the one
+game in the project whose payout nobody had solved, and the README said so.
+
+THE GOLD ROOM replaces it. Three reels of 30 weighted stops, a 3x3 window on
+them, five paylines across it, and one wild that substitutes for everything.
+A spin draws one stop per reel and the column shows that stop and its two
+cyclic neighbours, so the three rows of a reel are *adjacent strip cells* - a
+miss is visibly a miss by one position rather than three unrelated draws, and
+how often a symbol lands is a property of where it was placed on the strip,
+which is what a weighted reel is.
+
+`src/tables7.py` solves it, and it closes on the target **exactly**: 96% is
+24/25, and the RTP of the shipped integer ladder is 24/25 to the last bit, not
+within a tolerance of it. 30 stops is what makes that possible - `0.96 * 30**3`
+is a whole number of unit stakes and `0.96 * 32**3` is not. Every symbol is
+then paid as close to fair odds as integers allow, so each one returns between
+9.4% and 10.1% of the RTP and no single rung carries the game. Hit frequency
+is 37.4%, the top prize is 90x, and both come from walking all 27000 screens,
+not from sampling them.
+
+`tests/play_slots.js` is new. It re-implements the payline rule independently
+and drives **all 729 symbol triples** through the real VM on a straight line
+and again on a diagonal, plus every distinct payout the table can produce and
+the 90x maximum - rungs a random-spin loop would never reach, since three
+wilds is about 1 in 900 spins and the top three rows of the paytable carry a
+fifth of the return. A `slotsEval` broadcast exists in the shipped file for
+exactly this: it re-runs the evaluator over whatever is in `slGrid` and cannot
+pay, because crediting chips is a separate warped procedure gated on
+`roundOn`.
+
+**Two holes in the existing tests, found by mutating the build.** A first pass
+of the new harness scored 35/35 against a build whose paytable panel was
+hidden outright, and against one whose reels never turned - it read the nine
+symbol plates and nothing else. Both are covered now, and both mutants die.
+`tests/overlap.js` had a worse one: it clicked lobby tiles while already
+inside a game, and `MenuTile`'s click hat is gated on `screen == 0`, so the
+sweeps labelled "plinko idle" and "roulette idle" had always been two more
+slots sweeps. Plinko and roulette had never been swept at all.
+
+**A solver can no longer ship a stale table.** `paths.ensure_tables()` ran a
+solver only when its JSON was missing, so editing one without `make tables`
+shipped the previous table - to the build *and* to the harness that reads the
+same file, which then agreed with each other while both disagreed with the
+source. A solver can now publish a `digest` of its own source and be re-run
+when it stops matching.
+
 ## v4.1
 
 **A sprite could be left on top of every screen until the green flag.** Click a

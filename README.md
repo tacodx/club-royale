@@ -32,7 +32,7 @@ Requires Python 3 (pillow, numpy) and Node (scratch-vm).
 
 | Game | RTP | |
 |---|---|---|
-| Slots | 94.3% | 3 reels, up to 50x |
+| Slots | 96% | 3x3 on weighted strips, 5 paylines, one wild, up to 90x |
 | Plinko | 95.3% | 8/12/16 rows x low/med/high risk, up to 400x |
 | Mines | 96% | 1/3/5/10 bombs |
 | Blackjack | — | double, split, insurance, 3:2 naturals, dealer stands on 17 |

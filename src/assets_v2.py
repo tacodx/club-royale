@@ -228,16 +228,9 @@ def lobby_tile(name, label, icon):
 
 
 def ic_slots(img, c):
-    x, y = c
-    def f(d):
-        for i in (-1, 0, 1):
-            bx = x + i * 12 * SC
-            d.polygon(chamfer_pts([bx - 5 * SC, y - 12 * SC,
-                                   bx + 5 * SC, y + 12 * SC], 3 * SC),
-                      outline=(255, 255, 255, 255), width=2)
-        d.text((x, y), "7", font=font(11 * SC), anchor="mm",
-               fill=(255, 255, 255, 255))
-    _gold(img, f)
+    """The lobby glyph that actually ships: a 3x3 window with a payline
+    through the middle row. THE GOLD ROOM has no reel of sevens to draw."""
+    A11.ic_slots(img, c, s=15 * SC)
 
 
 def ic_plinko(img, c):

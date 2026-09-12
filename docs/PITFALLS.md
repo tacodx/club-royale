@@ -227,10 +227,10 @@ different things on different machines.
 
 ## 11. Clone limit is 300
 
-Currently 235 are alive at boot: 49 roulette spots, 40 digits, 36 stair tiles,
+Currently 241 are alive at boot: 49 roulette spots, 40 digits, 36 stair tiles,
 25 mine tiles, 18 cards, 17 buckets, 12 duck multipliers, 11 lobby tiles, 9
-stair multipliers, 6 sparks, 5 orbs, 4 cars, 3 reels — plus up to 49 transient
-roulette chips and the Plinko balls. Scratch silently refuses to create beyond the
+slot cells, 9 stair multipliers, 6 sparks, 5 orbs, 4 cars — plus up to 49
+transient roulette chips and the Plinko balls. Scratch silently refuses to create beyond the
 cap, so a ball that fails to spawn after the bet was deducted would lose money.
 The Plinko spawn is guarded with `ballsUp < 25` for that reason.
 

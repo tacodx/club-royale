@@ -64,7 +64,7 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('boot: bet 50', Number(gv('bet')) === 50);
   check('boot: clone counts',
     cl('MenuTile').length === sp('MenuTile').getCostumes().length &&
-    cl('Reel').length === 3 &&
+    cl('Reel').length === 9 &&
     cl('MineTile').length === 25 && cl('Card').length === 18 &&
     cl('Digit').length === 40 && cl('Bucket').length === 17,
     `menu ${cl('MenuTile').length} reel ${cl('Reel').length} mine ${cl('MineTile').length} card ${cl('Card').length} digit ${cl('Digit').length} bucket ${cl('Bucket').length}`);
@@ -133,24 +133,12 @@ async function bootSettle(vm, sleep, cap = 6000) {
   check('bet: cannot exceed chips', Number(gv('bet')) <= 60, 'bet ' + gv('bet') + ' chips ' + gv('chips'));
   setv('chips', 1000000);
 
-  // ------------------------------------------------ slots still exact
+  // ---------------------------------------------------- slots navigation
+  // The payouts themselves live in tests/play_slots.js: the paytable is
+  // solved in src/tables7.py now, so a second copy of it here would be the
+  // duplication that rework deleted. This only proves the tile still opens.
   click(back); await sleep(200); click(tile(1)); await sleep(250);
-  const slotExp = (r, b) => { const [a, x, c] = r;
-    if (a === x && x === c) return a === 1 ? b * 50 : b * 12;
-    if (a === x || x === c || a === c)
-      return ((a === x && a === 1) || (x === c && x === 1) || (a === c && a === 1))
-        ? b * 4 : Math.round(b * 1.8);
-    return 0; };
-  let sbad = 0;
-  const NSLOT=Number(process.argv[3]||90);
-  for (let i = 0; i < NSLOT; i++) {
-    setv('chips', 100000); const b = Number(gv('bet'));
-    click(act); await sleep(150);
-    await until(() => Number(gv('busy')) === 0, 'spin', 300); await sleep(30);
-    const got = gv('chips') - 100000 + b;
-    if (got !== slotExp(gls('reelResult'), b)) sbad++;
-  }
-  check('slots: '+NSLOT+' spins exact', sbad === 0, sbad + ' mismatches');
+  check('nav: slots', Number(gv('screen')) === 1);
 
   // ------------------------------------------------ PLINKO all 9 tables
   click(back); await sleep(200); click(tile(2)); await sleep(300);

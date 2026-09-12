@@ -27,6 +27,7 @@ const check = (n, c, e = '') => R.push([c ? 'PASS' : 'FAIL', n, e]);
 
 // lobby tile index -> [label, sprite forming the board, tiles it should show]
 const BOARDS = [
+  [1, 'Slots',     'Reel',       9],   // 3x3 grid, one clone per cell
   [2, 'Plinko',    'Bucket',    13],   // 12 rows -> 13 buckets
   [5, 'Roulette',  'RSpot',     49],
   [6, 'Stairs',    'StairTile', 27],   // MEDIUM: 9 rows x 3 tiles

@@ -26,6 +26,13 @@ T3 = json.load(open(BUILD / "tables3.json"))
 T4 = json.load(open(BUILD / "tables4.json"))
 T5 = json.load(open(BUILD / "tables5.json"))
 T6 = json.load(open(BUILD / "tables6.json"))
+T7 = json.load(open(BUILD / "tables7.json"))
+SL_STRIP_LEN = T7["stripLen"]
+SL_REELS = T7["reels"]
+SL_ROWS = T7["rows"]
+SL_WILD = T7["wild"]
+SL_LINES_N = len(T7["lines"]) // T7["reels"]
+SL_CELLS = T7["reels"] * T7["rows"]
 
 FAST = os.environ.get("FAST") == "1"
 _rw = wait
@@ -152,6 +159,20 @@ dcTxt   = p.var("dcTxt", "")      # the roll as it is displayed, "73.42"
 dcWon   = p.var("dcWon", 0)
 dcRolling = p.var("dcRolling", 0)
 dcShown = p.var("dcShown", 0)     # a roll has landed on this visit
+slUnits = p.var("slUnits", 0)     # unit stakes won this spin; mult = slUnits/5
+slSpin  = p.var("slSpin", 0)      # reels still turning: 3 -> 2 -> 1 -> 0
+# loop scratch for the slots procedures only. Fresh names on purpose: tmp,
+# tmp2, i, sc and aces are clobbered by draw_card and reveal_row, and a
+# warped procedure that borrowed one would corrupt whatever else was mid-flight.
+slL     = p.var("slL", 0)         # payline 1..5
+slC     = p.var("slC", 0)         # reel / cell counter
+slR     = p.var("slR", 0)         # row / run-cell counter
+slA     = p.var("slA", 0)         # the line's three symbols
+slB     = p.var("slB", 0)
+slD     = p.var("slD", 0)
+slBase  = p.var("slBase", 0)      # the symbol the line resolved to
+slRun   = p.var("slRun", 0)       # its run length, 1..3
+slU     = p.var("slU", 0)         # units that line paid
 
 spotX   = p.lst("spotX", [str(v) for v in SPOTX])
 spotY   = p.lst("spotY", [str(v) for v in SPOTY])
@@ -163,7 +184,23 @@ plinkoMults = p.lst("plinkoMults", PLINKO_FLAT)
 bucketVals  = p.lst("bucketVals", [f"{v:g}" for v in BKV])
 mineMults   = p.lst("mineMults", MINE_FLAT)
 bombCounts  = p.lst("bombCounts", [str(v) for v in BOMBC])
-reelResult  = p.lst("reelResult", ["1", "1", "1"])
+# ------------------------------------------------------------------ slots
+# Constant, straight from the solver, never written by the VM. The strips ship
+# pre-flattened in the layout the window rule indexes, so there is no second
+# place for the layout to be got wrong.
+slStrip = p.lst("slStrip", [str(v) for v in T7["strips"]])
+slPay3  = p.lst("slPay3", [str(v) for v in T7["pay3"]])
+slPay2  = p.lst("slPay2", [str(v) for v in T7["pay2"]])
+slLines = p.lst("slLines", [str(v) for v in T7["lines"]])
+slColX  = p.lst("slColX", [f"{v:g}" for v in AV.SL_COL_X])
+slRowY  = p.lst("slRowY", [f"{v:g}" for v in AV.SL_ROW_Y])
+# Mutable, and CONSTANT LENGTH. A green flag does not restore list contents,
+# so these are only ever written with `replace item` - a single `add to` would
+# lengthen them for the rest of the session and read as a rendering bug.
+slStops = p.lst("slStops", ["1"] * SL_REELS)
+slGrid  = p.lst("slGrid", ["1"] * SL_CELLS)      # cell = (col-1)*3 + row
+slLineWin = p.lst("slLineWin", ["0"] * SL_LINES_N)
+slHot   = p.lst("slHot", ["0"] * SL_CELLS)       # 1 = part of a winning run
 bombs       = p.lst("bombs", [])
 revealed    = p.lst("revealed", ["1"] * 25)
 deck        = p.lst("deck", [])
@@ -379,6 +416,9 @@ dig.script(
                     all_of(eq(dField, 3),
                            any_of(eq(screen, 3), eq(screen, 6),
                                   eq(screen, 7), eq(screen, 11))),
+                    # slots shows the multiplier only when a spin actually
+                    # paid, so the plaque is not sitting at 0 between rounds
+                    all_of(eq(dField, 3), eq(screen, 1), gt(mult, 0)),
                     all_of(eq(dField, 4), eq(screen, 5), eq(busy, 1)),
                     any_of(all_of(eq(dField, 5), eq(screen, 5)),
                            all_of(eq(dField, 5), eq(screen, 11),
@@ -431,7 +471,13 @@ mplq = p.sprite("MultPlaque")
 C(mplq, "plq", "plq_mult")
 mplq.x, mplq.y, mplq.visible = 0, 163, False
 mplq.script(when_flag(), goto(0, 163))
-mplq.script(when_flag(), vis([3, 6, 7, 11]))
+# vis()'s second argument is extra blocks, not an extra condition, so the
+# plaque needs its own loop to follow the same "slots only once it has paid"
+# rule as the digits it labels.
+mplq.script(when_flag(), forever(
+    if_else(any_of(eq(screen, 3), eq(screen, 6), eq(screen, 7), eq(screen, 11),
+                   all_of(eq(screen, 1), gt(mult, 0))),
+            [show()], [hide()])))
 
 splq = p.sprite("StakePlaque")
 C(splq, "plq", "plq_stake")
@@ -440,75 +486,219 @@ splq.script(when_flag(), goto(0, 163))
 splq.script(when_flag(), vis([5]))
 
 # ===================================================== slots
+# THE GOLD ROOM. Three reels of 30 weighted stops, a 3x3 window on them, and
+# five paylines across it. The strips, the paytable and the lines are all
+# solved in src/tables7.py and arrive here as constant lists; nothing about
+# the payout is decided in this file.
+#
+# A spin draws one stop per reel and derives all nine cells from it before a
+# single frame is drawn, so what the reels animate is a decision that has
+# already been made (the Duck Road rule). The reels then stop left to right
+# purely for show.
 frame = p.sprite("SlotFrame")
 C(frame, "frame", "slotframe")
-frame.x, frame.y, frame.visible = -52, 25, False
-frame.script(when_flag(), goto(-52, 25))
+frame.x, frame.y, frame.visible = AV.SL_FRAME_XY[0], AV.SL_FRAME_XY[1], False
+frame.script(when_flag(), goto(*AV.SL_FRAME_XY))
 frame.script(when_flag(), vis([1]))
 
-R = lambda n: item_of(reelResult, n)
-slot_pay = if_else(
-    and_(eq(R(1), R(2)), eq(R(2), R(3))),
-    [if_else(eq(R(1), 1), [set_var(win, mul(bet, 50))],
-             [set_var(win, mul(bet, 12))])],
-    [if_(or_(or_(eq(R(1), R(2)), eq(R(2), R(3))), eq(R(1), R(3))),
-         if_else(or_(or_(and_(eq(R(1), 1), eq(R(2), 1)),
-                         and_(eq(R(2), 1), eq(R(3), 1))),
-                     and_(eq(R(1), 1), eq(R(3), 1))),
-                 [set_var(win, mul(bet, 4))],
-                 [set_var(win, round_(mul(bet, 1.8)))]))],
-)
+# cell (col, row) shows the strip position `row - 2` away from the reel's stop,
+# cyclically: row 2 is the stop itself and rows 1 and 3 are its neighbours, so
+# a near miss on screen really is a near miss on the strip. The +27 (rather
+# than -3) keeps the operand of `mod` positive at every stop, so none of this
+# depends on how Scratch signs a negative modulo.
+sl_cell = lambda c, r: add(mul(sub(c, 1), SL_ROWS), r)
+sl_stop_sym = lambda c, r: item_of(
+    slStrip, add(mul(sub(c, 1), SL_STRIP_LEN),
+                 add(mod(add(add(item_of(slStops, c), r), SL_STRIP_LEN - 3),
+                         SL_STRIP_LEN), 1)))
+
+sl_draw = Proc(frame, "draw slots", [], warp=True)
+define(frame, sl_draw,
+       set_var(slC, 0),
+       repeat(SL_REELS,
+              change_var(slC, 1),
+              replace_item(slStops, slC, rand(1, SL_STRIP_LEN)),
+              set_var(slR, 0),
+              repeat(SL_ROWS,
+                     change_var(slR, 1),
+                     replace_item(slGrid, sl_cell(slC, slR),
+                                  sl_stop_sym(slC, slR)))),
+       x=40, y=40)
+
+# The one payline rule, and the only place a payout is computed. A line pays
+# on its leading run from reel 1: the wild substitutes for anything, the line's
+# symbol is the first non-wild cell, and the run is 3, 2 or 1. A line pays at
+# most one value and there is no second pay path - which is what keeps the
+# "only one thing may pay a round" rule easy to hold here.
+# Written as one loop over the five lines rather than five unrolled copies, so
+# there is exactly one copy of the rule to get wrong.
+sl_eval = Proc(frame, "eval slots", [], warp=True)
+define(frame, sl_eval,
+       set_var(slUnits, 0),
+       set_var(slC, 0),
+       repeat(SL_CELLS, change_var(slC, 1), replace_item(slHot, slC, 0)),
+       set_var(slL, 0),
+       repeat(SL_LINES_N,
+              change_var(slL, 1),
+              set_var(slA, item_of(slGrid, item_of(
+                  slLines, add(mul(sub(slL, 1), SL_REELS), 1)))),
+              set_var(slB, item_of(slGrid, item_of(
+                  slLines, add(mul(sub(slL, 1), SL_REELS), 2)))),
+              set_var(slD, item_of(slGrid, item_of(
+                  slLines, add(mul(sub(slL, 1), SL_REELS), 3)))),
+              # the symbol is the first non-wild cell, left to right; all three
+              # wild resolves to the wild itself
+              if_else(eq(slA, SL_WILD),
+                      [if_else(eq(slB, SL_WILD),
+                               [set_var(slBase, slD)],
+                               [set_var(slBase, slB)])],
+                      [set_var(slBase, slA)]),
+              if_else(or_(eq(slB, slBase), eq(slB, SL_WILD)),
+                      [if_else(or_(eq(slD, slBase), eq(slD, SL_WILD)),
+                               [set_var(slRun, 3)],
+                               [set_var(slRun, 2)])],
+                      [set_var(slRun, 1)]),
+              if_else(eq(slRun, 3),
+                      [set_var(slU, item_of(slPay3, slBase))],
+                      [if_else(eq(slRun, 2),
+                               [set_var(slU, item_of(slPay2, slBase))],
+                               [set_var(slU, 0)])]),
+              replace_item(slLineWin, slL, slU),
+              if_(gt(slU, 0),
+                  change_var(slUnits, slU),
+                  # light the cells that actually paid: reels 1..run of this line
+                  set_var(slR, 0),
+                  repeat(slRun,
+                         change_var(slR, 1),
+                         replace_item(slHot, item_of(
+                             slLines, add(mul(sub(slL, 1), SL_REELS), slR)), 1)))),
+       set_var(mult, div(slUnits, SL_LINES_N)),
+       # one `bet` buys all five lines, so a line's stake is bet/5. Every bet
+       # level is a multiple of 5 and tables7.py asserts the result is a whole
+       # number of chips at every one of them, so nothing here is rounded.
+       set_var(win, div(mul(bet, slUnits), SL_LINES_N)),
+       x=440, y=40)
+
+# The ONLY thing that credits a slots round, and it is guarded on roundOn still
+# being 1 - so a second call cannot pay twice - and it clears roundOn in the
+# same non-yielding step that pays. busy is still 1 when this returns, so there
+# is no frame in which SPIN is live over a settled round.
+sl_pay = Proc(frame, "pay slots", [], warp=True)
+define(frame, sl_pay,
+       if_(eq(roundOn, 1),
+           change_var(chips, win),
+           set_var(roundOn, 0)),
+       x=1040, y=40)
+
+sl_clear = Proc(frame, "clear slots", [], warp=True)
+define(frame, sl_clear,
+       set_var(slUnits, 0), set_var(mult, 0), set_var(slSpin, 0),
+       set_var(slC, 0),
+       repeat(SL_CELLS, change_var(slC, 1), replace_item(slHot, slC, 0)),
+       set_var(slL, 0),
+       repeat(SL_LINES_N, change_var(slL, 1), replace_item(slLineWin, slL, 0)),
+       x=1040, y=240)
+
+# Entering the game clears the last visit's win, so a highlight cannot outlive
+# the round it belonged to.
+frame.script(when_bc(p, "openSlots"), sl_clear.call())
 
 frame.script(
     when_bc(p, "action"),
     if_(and_(eq(screen, 1), eq(busy, 0)),
         if_else(lt(chips, bet),
-                [set_var(msgId, 10), wait(1.2), set_var(msgId, 1)],
-                [set_var(busy, 1), set_var(msgId, 1), set_var(win, 0),
+                # busy rises FIRST: this branch yields for 1.2s, and without it
+                # a second click restarts this whole handler from the top.
+                [set_var(busy, 1), set_var(msgId, 10), wait(1.2),
+                 set_var(msgId, 1), set_var(busy, 0)],
+                [set_var(busy, 1), set_var(roundOn, 1), set_var(msgId, 1),
+                 sl_clear.call(), set_var(win, 0),
                  change_var(chips, mul(bet, -1)),
-                 replace_item(reelResult, 1, rand(1, 8)),
-                 replace_item(reelResult, 2, rand(1, 8)),
-                 replace_item(reelResult, 3, rand(1, 8)),
-                 broadcast(p, "spinReels"), wait(1.45),
-                 slot_pay, change_var(chips, win),
-                 if_else(gt(win, 0),
+                 # the whole outcome, before anything moves
+                 sl_draw.call(),
+                 set_var(slSpin, 3), SFX("reel"),
+                 wait(0.5), set_var(slSpin, 2), SFX("reel", 8),
+                 wait(0.34), set_var(slSpin, 1), SFX("reel", 16),
+                 wait(0.34), set_var(slSpin, 0),
+                 # settle and pay: two warped calls with nothing between them
+                 sl_eval.call(), sl_pay.call(),
+                 if_else(gt(slUnits, 0),
                          [if_else(gt(win, mul(bet, 9)),
                                   [set_var(msgId, 11), SFX("bigwin")],
                                   [set_var(msgId, 2), SFX("win")])],
                          [set_var(msgId, 3), SFX("lose")]),
+                 # the win stays lit until the next spin clears it
                  wait(1.4), set_var(msgId, 1), set_var(busy, 0)])),
 )
 
+# For the harness only: nothing in the game broadcasts this. It re-runs the
+# evaluator over whatever is in slGrid, which lets a test drive every rung of
+# the paytable - including the 1-in-900 top rung a random spin loop would never
+# reach - through the real VM. It cannot pay: crediting chips is sl_pay's job
+# alone, and that is gated on roundOn, which only the round script sets.
+# (Precedent: amLog, above, exists for the same reason.)
+frame.script(when_bc(p, "slotsEval"), if_(eq(screen, 1), sl_eval.call()))
+
 pt = p.sprite("Paytable")
 C(pt, "pt", "paytable")
-pt.x, pt.y, pt.visible = 168, 25, False
-pt.script(when_flag(), goto(168, 25))
+pt.x, pt.y, pt.visible = AV.SL_PT_XY[0], AV.SL_PT_XY[1], False
+pt.script(when_flag(), goto(*AV.SL_PT_XY))
 pt.script(when_flag(), vis([1]))
 
+# One clone per cell. Nine of them, spawned inside a warped procedure so the
+# clones and the reset of the index are a single non-yielding step: unwarped
+# this is a nine-frame window in which the ORIGINAL carries a live index.
 reel = p.sprite("Reel")
-for n in range(1, 9):
+for n in range(1, len(T7["names"]) + 1):
     C(reel, f"s{n}", f"sym{n}")
 reel.visible = False
-rIdx = reel.local_var("rIdx", 0)
-reel.script(when_flag(), hide(), set_var(rIdx, 0),
-            repeat(3, change_var(rIdx, 1), clone()), set_var(rIdx, 0))
+cIdx = reel.local_var("cIdx", 0)
+cCol = reel.local_var("cCol", 0)
+cRow = reel.local_var("cRow", 0)
+cRoll = reel.local_var("cRoll", 0)
+
+reel_spawn = Proc(reel, "spawn cells", [], warp=True)
+define(reel, reel_spawn,
+       set_var(cIdx, 0),
+       repeat(SL_CELLS, change_var(cIdx, 1), clone()),
+       set_var(cIdx, 0), x=40, y=40)
+reel.script(when_flag(), hide(), reel_spawn.call())
+
+# Every cell repaints from state, every frame - there is no animation script.
+# A `when I receive` spin would be restarted by the next broadcast and would
+# take as many frames as it has steps, which under FAST=1 is longer than a
+# whole round: the grid could still be mid-roll, or showing the previous spin,
+# when the round that paid it is over. Reading slGrid every frame means what
+# is on screen cannot disagree with what was paid, at either speed.
 reel.script(
     when_clone(),
-    goto(add(-148, mul(96, sub(rIdx, 1))), 24),
+    set_var(cCol, add(mathop("floor", div(sub(cIdx, 1), SL_ROWS)), 1)),
+    set_var(cRow, add(mod(sub(cIdx, 1), SL_ROWS), 1)),
+    goto(item_of(slColX, cCol), item_of(slRowY, cRow)),
     go_layer("front"),
-    switch_costume_r(rand(1, 8), "s1"),
-    vis([1]),
+    set_var(cRoll, cIdx),
+    forever(
+        if_else(
+            eq(screen, 1),
+            [if_else(
+                # column c is still turning while slSpin > 3 - c, so the reels
+                # come to rest left to right
+                gt(slSpin, sub(SL_REELS, cCol)),
+                [change_var(cRoll, 1),
+                 switch_costume_r(
+                     item_of(slStrip, add(mul(sub(cCol, 1), SL_STRIP_LEN),
+                                          add(mod(cRoll, SL_STRIP_LEN), 1))),
+                     "s1"),
+                 clear_effects()],
+                [switch_costume_r(item_of(slGrid, cIdx), "s1"),
+                 # nothing won: the whole grid stays lit. Something won: the
+                 # cells that did not pay dim out from under it.
+                 if_else(or_(eq(slUnits, 0), eq(item_of(slHot, cIdx), 1)),
+                         [clear_effects()],
+                         [set_effect("ghost", 62)])]),
+             show()],
+            [hide()])),
 )
-reel.script(
-    when_bc(p, "spinReels"),
-    if_(and_(eq(screen, 1), gt(rIdx, 0)),
-        repeat(add(8, mul(6, rIdx)),
-               switch_costume_r(rand(1, 8), "s1"), wait(0.03)),
-        switch_costume_r(item_of(reelResult, rIdx), "s1"),
-        SFX("reel"),
-        change_effect("brightness", 45), wait(0.08), clear_effects()),
-)
-
 # ===================================================== plinko
 board = p.sprite("PlinkoBoard")
 for r in ROWC:

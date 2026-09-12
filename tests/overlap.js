@@ -47,9 +47,24 @@ function sweep(label){
   const tile=n=>cl('MenuTile').find(t=>Number(lv(t,'mIdx'))===n);
   const act=sp('ActionBtn');
   sweep('lobby');
+  // Back to the lobby between tiles. MenuTile's click hat is gated on
+  // screen==0 (build.py), so clicking the next tile from inside a game does
+  // nothing at all: this loop used to sweep slots three times under three
+  // different labels, and plinko and roulette were never swept once.
   for(const [i,name] of [[1,'slots'],[2,'plinko'],[5,'roulette']]){
     click(tile(i)); await sleep(320); sweep(name+' idle');
+    click(sp('BackBtn')); await sleep(260);
   }
+  // Slots mid-spin. Taking a bet now hides the bet plaque and its digits and
+  // raises the MULT plaque over the top bar, so the screen a player looks at
+  // during a spin is not the screen swept above.
+  click(tile(1)); await sleep(320);
+  stage().lookupVariableByNameAndType('chips').value=100000;
+  click(act); await until(()=>Number(gv('busy'))===1,'slots spin');
+  sweep('slots mid-spin');
+  await until(()=>Number(gv('busy'))===0,'slots settle',400);
+  sweep('slots settled');
+  click(sp('BackBtn')); await sleep(400);
   // mines mid-round
   click(sp('BackBtn')); await sleep(260); click(tile(3)); await sleep(300);
   sweep('mines idle');

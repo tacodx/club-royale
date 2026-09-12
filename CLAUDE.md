@@ -56,11 +56,11 @@ them. When a change touches what is shown, assert on what is rendered
 (`tests/play_blackjack.js` reconstructs the digit sprites and compares) and run
 `make mocks`.
 
-**Watch the clone budget.** Scratch caps clones at 300. Currently 235 clones are
+**Watch the clone budget.** Scratch caps clones at 300. Currently 241 clones are
 alive at boot (49 RSpot, 40 Digit, 36 StairTile, 25 MineTile, 18 Card, 17
-Bucket, 12 DuckMult, 11 MenuTile, 9 StairMult, 6 Spark, 5 AvOrb, 4 DuckCar, 3
-Reel), and roulette adds up to 49 chips on top, so the real worst case is 284 —
-16 spare. `src/build.py` prints nothing about this, so count before adding a
+Bucket, 12 DuckMult, 11 MenuTile, 9 Reel, 9 StairMult, 6 Spark, 5 AvOrb, 4
+DuckCar), and roulette adds up to 49 chips on top, so the real worst case is
+290 — 10 spare. `src/build.py` prints nothing about this, so count before adding a
 clone-heavy feature: `tests/play_blackjack.js`, `tests/play_duck.js`,
 `tests/play_avia.js`, `tests/play_coin.js` and `tests/play_dice.js` all assert
 `< 300`. Coin Flip and Dice cost two clones between them — both render from
@@ -163,6 +163,9 @@ src/
   tables5.py     aviamasters orb mix + the per-slot ditch ramp
   tables6.py     coin flip ladder (exact, no rounding) + the dice range and
                  precision, asserted over all 9401 slider positions
+  tables7.py     slots: the three reel strips, the five paylines and the
+                 3-of-a-kind ladder, solved to exactly 24/25 and asserted
+                 over all 27000 screens
   build.py       the game itself: sprites, scripts, wiring
 tests/
   validate.py         static: every block/costume/variable reference resolves
@@ -176,6 +179,8 @@ tests/
   play_avia.js        aviamasters: replays every flight from its orb log
   play_coin.js        coin flip: every call, every rung, the coin's own face
   play_dice.js        dice: drives the real slider, every threshold and side
+  play_slots.js       slots: the window rule, every one of the 729 triples on a
+                      line, the grid as rendered, and what each spin paid
   boot_race.js        opens every game mid-spawn: the only check for a sprite
                       left visible on a screen it does not belong to
 tools/
@@ -186,7 +191,7 @@ tools/
 
 | Game | House edge | Notes |
 |---|---|---|
-| Slots | 94.3% RTP | 3 reels, 8 symbols, uniform |
+| Slots | 96% RTP | 3x3 on weighted 30-stop strips, 5 paylines, one wild |
 | Plinko | ~95.3% RTP | rows 8/12/16 x risk low/med/high = 9 tables |
 | Mines | 96% RTP | 1/3/5/10 bombs, 4 tables |
 | Blackjack | standard | double, split, insurance, dealer peek, 3:2 naturals |
@@ -209,5 +214,3 @@ tools/
 - **The bankroll is abbreviated above a million** (`12.58M`, `1.26B`) rather
   than shown in full. Seven digit slots is what the top bar has room for before
   the readout runs into the MULT plaque at x=0.
-- **Slots is the weakest game.** Uniform reels, no paylines. A second theme
-  would not fix that; weighted reel strips and real paylines would.

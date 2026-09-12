@@ -79,11 +79,27 @@ def lobby():
 
 
 def slots():
+    """The top screen the solver publishes, with its losing cells ghosted.
+
+    Every number here - the stops, the nine symbols, and which cells the win
+    lit - is read from build/tables7.json. An earlier draft of this function
+    re-implemented the window rule and the payline rule to work them out,
+    which made it a third copy of the two rules this rework exists to keep in
+    one place; a strip change would have left the picture quietly wrong.
+    """
     c = stage()
-    put(c, "slotframe", -52, 25); put(c, "paytable", 168, 25)
-    for i, s in enumerate(["sym1", "sym1", "sym5"]):
-        put(c, s, -148 + 96 * i, 24)
-    betbar(c); put(c, "btn_spin", 75, -152); put(c, "msg_bigwin", 0, -104)
+    put(c, "slotframe", *A11.SL_FRAME_XY)
+    put(c, "paytable", *A11.SL_PT_XY)
+    T7 = A11.T7
+    hot, lines = set(T7["maxHot"]), len(T7["lines"]) // 3
+    for cell, sym in enumerate(T7["maxGrid"], 1):
+        put(c, f"sym{sym}",
+            A11.SL_COL_X[(cell - 1) // 3], A11.SL_ROW_Y[(cell - 1) % 3],
+            ghost=0 if cell in hot else 0.62)
+    betbar(c); put(c, "btn_spin", 75, -152)
+    put(c, "plq_mult", 0, 163)
+    dig(c, f"{T7['maxUnits'] / lines:g}", 86, 163, 14)
+    put(c, "msg_bigwin", 0, -104)
     chrome(c); return c
 
 

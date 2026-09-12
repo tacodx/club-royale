@@ -106,6 +106,22 @@ Scratch has no 2-D lists.
 | `amRamp` | 14 slots | per-slot ditch odds out of 1000, indexed by `amSlot` |
 | `amCum`, `amA`, `amB` | 6 orbs | cumulative weight, and the orb's affine map |
 | `coinMults` | 12 rungs | `cfStreak`, straight |
+| `slStrip` | 3 blocks of 30 | `(reel-1)*30 + strip position` |
+| `slPay3`, `slPay2` | 9 slots | the symbol id, which is also its costume number |
+| `slLines` | 5 blocks of 3 | `(line-1)*3 + reel` -> the cell it reads |
+| `slGrid`, `slHot` | 9 cells | `(col-1)*3 + row`, row 1 at the top |
+
+`src/tables7.py` solves slots. Each reel is a fixed 30-stop strip and a spin
+draws one stop per reel, showing that stop and its two cyclic neighbours - so
+the three rows of a column are adjacent strip cells and the weighting is a
+property of where a symbol was placed, not of a biased `rand`. All five
+paylines see the same marginal triple distribution, so the return is linear in
+the per-line pays and one line solves the game. 30 stops is the length that
+makes it exact: `0.96 * 30**3` is a whole number of unit stakes and `0.96 *
+32**3` is not, so the ladder closes on 24/25 rather than bisecting towards it.
+The 3-of-a-kind rungs are then chosen to sit as close to fair odds as integers
+allow, which is what keeps every symbol's share of the return between 9.4% and
+10.1% instead of letting one jackpot carry the game.
 
 Dice has no table: the threshold is dragged, so `src/tables6.py` fixes the
 range and the precision and asserts the invariant, and the multiplier is
