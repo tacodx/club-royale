@@ -3,6 +3,41 @@
 Older `.sb3` builds are attached to GitHub Releases rather than committed.
 `dist/ClubRoyale.sb3` is always the current build.
 
+## v4.2
+
+**Arcade ready.** The game now plays on the work's Raspberry Pi arcade cabinet,
+where the only input is a joystick and buttons that the cabinet's bridge
+(`tacodx/arcade-scratch-pipeline`) sends as key presses. `docs/ARCADE.md` is
+the contract between the two repos and includes a ready-made `game.json`.
+
+- A gold **focus frame** moves between controls with the stick. A presses,
+  B goes back to the lobby, L/R change the bet, Y is the main action and X
+  cashes out. The mouse works exactly as before; a click hides the frame.
+- **Nothing is duplicated.** A control is focusable under the very expression
+  that shows its sprite, and a press runs the very function its click script is
+  built from. The mines tile, roulette spot, stairs tile, lobby tile,
+  selectors, CLEAR, UNDO and the action, cash-out and lobby buttons were
+  refactored so each body is written once and emitted into both. Mines'
+  cash-out is now a broadcast like every other game's.
+- The frame **follows the round**: DEAL to HIT, START into the mines grid,
+  LAUNCH to CASH OUT, and back to START when the round ends, until the player
+  moves it themselves. In Stairs it climbs with the live row. Roulette opens on
+  RED. On the Dice slider, left/right drag the threshold.
+- **Out of chips** now shows a banner, and START (or a click on it) does what
+  the green flag does: a fresh 1,000. A cabinet has no green flag, so without
+  this one bad run would leave a dead screen. There is still no rebuy while you
+  have chips or a stake on the table.
+- **Idle reset**: three minutes in which nobody plays (no key, no click, no
+  change in the bankroll or the screen) resets to a fresh lobby for the next
+  player. A rocket or plane already in the air lands first.
+
+`tests/play_arcade.js` is new. It plays every game with nothing but those keys,
+posted through the VM's real keyboard, walks the frame to every visible control
+on every screen, and checks after every step that the frame is drawn on the
+control the focus names. `boot_race.js` also drives the stick from the first
+frame after the green flag. Two sprites were added (PadFocus, BrokeBanner),
+neither of which spawns clones, so the clone count at boot is still 235.
+
 ## v4.1
 
 **A sprite could be left on top of every screen until the green flag.** Click a

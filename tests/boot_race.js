@@ -34,7 +34,7 @@ const BOARDS = [
   [7, 'Duck Road', 'DuckMult',  12],
 ];
 // nothing in here may be left visible once we are back in the lobby
-const WATCH = ['Bucket', 'RSpot', 'StairTile', 'StairMult', 'DuckMult',
+const WATCH = ['BrokeBanner', 'Bucket', 'RSpot', 'StairTile', 'StairMult', 'DuckMult',
                'DuckCar', 'MineTile', 'Card', 'Reel', 'Spark', 'AvOrb',
                'Coin', 'CoinPip', 'DiceMark', 'DiceThresh', 'DiceBandL'];
 
@@ -89,6 +89,48 @@ function step(vm, n) {
       if (stray.length) leaked.push(`${name}@f${f}: ${stray.join(',')} clones`);
     }
   }
+
+  // The same race, driven the way the arcade cabinet drives it: the stick and
+  // the A button, from the first frame. The joystick does not need a tile
+  // clone to exist to open its game, so it can get in even earlier than a
+  // click - every frame here is a real trial, none are skipped.
+  const padLeak = [], padShort = [], padNever = [];
+  let padTrials = 0;
+  {
+    const vm = new VM();
+    await vm.loadProject(sb3);
+    const orig = n => vm.runtime.targets.find(t => !t.isStage && t.sprite.name === n && t.isOriginal);
+    const cl = n => vm.runtime.targets.filter(t => !t.isStage && t.sprite.name === n && !t.isOriginal);
+    const gv = n => vm.runtime.getTargetForStage().lookupVariableByNameAndType(n).value;
+    const key = (k, down) => vm.postIOData('keyboard', { key: k, isDown: down });
+    const press = (k, frames) => { key(k, true); step(vm, frames); key(k, false); step(vm, 2); };
+    for (let f = 1; f <= 56; f++) {
+      vm.greenFlag();
+      step(vm, f);
+      padTrials++;
+      press('ArrowRight', 2);                  // Slots -> Plinko
+      press(' ', 2);
+      step(vm, 40);
+      if (Number(gv('screen')) !== 2) { padNever.push(`f${f}: screen ${gv('screen')}`); continue; }
+      const shown = cl('Bucket').filter(t => t.visible).length;
+      if (shown !== 13) padShort.push(`f${f}: ${shown}/13 Bucket`);
+      press('b', 2);
+      step(vm, 40);
+      if (Number(gv('screen')) !== 0) { padNever.push(`f${f}: B left screen ${gv('screen')}`); continue; }
+      for (const n of WATCH) {
+        const o = orig(n);
+        if (o && o.visible) padLeak.push(`f${f}: ${n} original`);
+      }
+      const stray = WATCH.filter(n => cl(n).some(t => t.visible));
+      if (stray.length) padLeak.push(`f${f}: ${stray.join(',')} clones`);
+    }
+  }
+  check('boot race (joystick): nothing left visible in the lobby', padLeak.length === 0,
+        padLeak.length ? padLeak.slice(0, 3).join(' | ') : `${padTrials} trials clean`);
+  check('boot race (joystick): the board is complete however early', padShort.length === 0,
+        padShort.slice(0, 3).join(' | '));
+  check('boot race (joystick): stick + A open the game at every frame', padNever.length === 0,
+        padNever.slice(0, 3).join(' | '));
 
   check('boot race: no sprite is left visible in the lobby', leaked.length === 0,
         leaked.length ? `${leaked.length} of ${trials}: ` + leaked.slice(0, 3).join(' | ') : `${trials} trials clean`);

@@ -245,6 +245,20 @@ def touching_mouse():
     )
 
 
+def key_pressed(key):
+    """`key (key) pressed?` - polled, so it sees a key held across frames.
+
+    `key` is the Scratch name as the dropdown shows it: "space", "enter",
+    "up arrow", or a single lower-case letter. See docs/ARCADE.md for which
+    keys the cabinet sends.
+    """
+    return Ref(
+        "sensing_keypressed",
+        {"KEY_OPTION": Shadow(_b("sensing_keyoptions", {},
+                                 {"KEY_OPTION": [key, None]}))},
+    )
+
+
 def timer():
     return Ref("sensing_timer")
 

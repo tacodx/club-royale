@@ -18,8 +18,11 @@ function bbox(t){
   const w=(c.rotationCenterX*2/br)*k, h=(c.rotationCenterY*2/br)*k;
   return {l:t.x-w/2,r:t.x+w/2,b:t.y-h/2,t:t.y+h/2};
 }
-// sprites whose artwork is deliberately transparent / decorative
-const IGNORE=new Set(['Msg','Sfx','BJTable','RouletteCtrl','StairsCtrl','WheelPanel']);
+// sprites whose artwork is deliberately transparent / decorative.
+// PadFocus is the joystick's frame: a ring whose inside is fully transparent
+// over the whole control it surrounds (assets_v7 asserts that on every build),
+// and Scratch hit-tests by pixel, so it never takes a click.
+const IGNORE=new Set(['Msg','Sfx','BJTable','RouletteCtrl','StairsCtrl','WheelPanel','PadFocus']);
 function blockers(name){
   const b=sp(name); if(!b||!b.visible) return null;
   const out=[];
@@ -33,7 +36,8 @@ function blockers(name){
 }
 const BTNS=['ActionBtn','BackBtn','BetPlus','BetMinus','CashoutBtn','HitBtn',
   'StandBtn','DoubleBtn','SplitBtn','InsureBtn','NoInsBtn','ClearBtn','UndoBtn',
-  'RowsSel','RiskSel','BombsSel','DiffSel','DuckSel','AvSel'];
+  'RowsSel','RiskSel','BombsSel','DiffSel','DuckSel','AvSel','AviaSel',
+  'CallSel','SideSel'];
 const faults=[];
 function sweep(label){
   for(const n of BTNS){
@@ -50,6 +54,19 @@ function sweep(label){
   for(const [i,name] of [[1,'slots'],[2,'plinko'],[5,'roulette']]){
     click(tile(i)); await sleep(320); sweep(name+' idle');
   }
+  // out of chips: the banner must sit clear of every button, in a game and
+  // in place of the lobby title, and a click on it must start a fresh session
+  stage().lookupVariableByNameAndType('chips').value=2;
+  await sleep(200); sweep('roulette broke');
+  if(!sp('BrokeBanner').visible) faults.push('roulette broke: no OUT OF CHIPS banner');
+  click(sp('BackBtn')); await sleep(260); sweep('lobby broke');
+  for(const [i,name] of [[1,'slots'],[4,'blackjack'],[8,'crash'],[11,'dice']]){
+    click(tile(i)); await sleep(260); sweep(name+' broke');
+    click(sp('BackBtn')); await sleep(260);
+  }
+  click(sp('BrokeBanner')); await sleep(260);
+  if(Number(gv('chips'))!==1000) faults.push('lobby broke: clicking the banner gave no fresh session');
+  click(tile(5)); await sleep(320);
   // mines mid-round
   click(sp('BackBtn')); await sleep(260); click(tile(3)); await sleep(300);
   sweep('mines idle');

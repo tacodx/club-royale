@@ -4,6 +4,12 @@ Club Royale is an art-deco casino game for **Scratch 3**. It is not written in t
 Scratch editor. A Python compiler in `src/` emits `project.json`, generates every
 image and sound, and zips the result into a `.sb3`.
 
+It ships to two places: the Scratch editor, played with a mouse, and the work's
+Raspberry Pi arcade cabinet, played with a joystick and buttons that the cabinet
+sends as key presses. `docs/ARCADE.md` is the contract with the cabinet's
+pipeline repo (`tacodx/arcade-scratch-pipeline`). Both kinds of input have to
+keep working.
+
 Read `docs/PITFALLS.md` before writing any block logic. It documents Scratch
 execution behaviour that is not obvious and that has caused real bugs here.
 
@@ -115,6 +121,17 @@ coin and the dice needle instead repaint every frame from `cfSpin`/`cfSide` and
 `dcRolling`/`dcInt`, so what is on screen cannot disagree with what was paid,
 at either speed.
 
+**Every control must be reachable with the joystick.** The game ships on an
+arcade cabinet (`docs/ARCADE.md`), where the only input is a stick and buttons
+the cabinet sends as keys. A button added without an entry in the ARCADE
+section of `build.py` works with a mouse and cannot be reached there. Give it
+an entry in `SINGLES` (or `GRIDS` for a clone group) and a place in that
+screen's `ORDER`. Its availability must be the *same* lambda its sprite's
+forever loop shows it under, and its press the *same* function its click script
+runs: write the body once and emit it into both. `tests/play_arcade.js` walks
+the frame to every visible control on every screen and fails on any it cannot
+reach.
+
 **Round the way Scratch rounds, not the way Python does.** Scratch's `round`
 block is JS `Math.round` — halves go away from zero. Python's `round()` goes to
 even. Anywhere a solver models a value the *runtime* computes, the two must
@@ -155,6 +172,9 @@ src/
                  0-100 rail, its two sliding bars and the frame that masks them
                  (owns both games' geometry, and writes build/geom6.json so the
                  harnesses measure against the numbers the art was drawn from)
+  assets_v7.py   arcade: the joystick's focus frames (one per control size,
+                 asserted hollow so they never take a click) and the
+                 OUT OF CHIPS banner
   sfx.py         synthesised WAVs (numpy)
   tables.py      plinko (rows x risk) and mines (bomb count) solvers
   tables2.py     stairs (5 modes) solver + roulette constants
@@ -176,6 +196,8 @@ tests/
   play_avia.js        aviamasters: replays every flight from its orb log
   play_coin.js        coin flip: every call, every rung, the coin's own face
   play_dice.js        dice: drives the real slider, every threshold and side
+  play_arcade.js      the cabinet: every game played with the joystick's keys
+                      only, every control reached, the frame checked on screen
   boot_race.js        opens every game mid-spawn: the only check for a sprite
                       left visible on a screen it does not belong to
 tools/
@@ -200,9 +222,17 @@ tools/
 
 ## Known limitations
 
-- **No rebuy.** Running out of chips ends the session; the green flag starts you
-  at 1000 again. There used to be a free 500 at zero, which made the bankroll
-  meaningless.
+- **No rebuy.** Running out of chips ends the session. The OUT OF CHIPS banner
+  then offers a fresh 1000 on START (or a click), which is exactly what the
+  green flag does - a cabinet has no green flag. There used to be a free 500 at
+  zero, which made the bankroll meaningless.
+- **Idle reset.** Three minutes in which nobody plays (`idleSecs`; a key, a
+  click, or any change in the bankroll or screen counts as play) resets to a
+  fresh 1000 in the lobby. Right for a shared cabinet, and harmless at a desk.
+  The bankroll counts so that the harnesses' `startHats()` clicks, which never
+  touch the mouse, are not reset under them at real speed.
+- **One player.** Both cabinet stations send the same keys and drive the same
+  game. Two bankrolls on one screen would be a different game.
 - **No persistence.** A refresh resets chips to 1000. Scratch only persists via
   cloud variables, which need the project shared on scratch.mit.edu, the user
   signed in, and a full Scratcher account. They also store numbers only.

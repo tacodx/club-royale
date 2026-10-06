@@ -153,6 +153,13 @@ dcWon   = p.var("dcWon", 0)
 dcRolling = p.var("dcRolling", 0)
 dcShown = p.var("dcShown", 0)     # a roll has landed on this visit
 
+# arcade cabinet: the joystick's focus frame. See the ARCADE section and
+# docs/ARCADE.md.
+padOn   = p.var("padOn", 1)       # 1 = frame shown; a mouse click clears it
+padFocus= p.var("padFocus", 0)    # id of the focused control
+padA    = p.var("padA", 0)        # 1 while A is held down on the focus
+idleSecs= p.var("idleSecs", 180)  # untouched this long -> fresh session
+
 spotX   = p.lst("spotX", [str(v) for v in SPOTX])
 spotY   = p.lst("spotY", [str(v) for v in SPOTY])
 betLevels   = p.lst("betLevels", [str(v) for v in BET])
@@ -307,6 +314,12 @@ st.script(
 # games already answer a bet you cannot cover with NOT ENOUGH CHIPS, and with
 # no persistence (see the known limitations) the green flag starts you at 1000
 # again. A free 500 at zero made the bankroll meaningless.
+
+
+# Out of chips: nothing staked anywhere, and the bankroll cannot cover the
+# smallest bet. Shown by the BrokeBanner; START answers it (see ARCADE).
+BROKE = lambda: all_of(lt(chips, item_of(betLevels, 1)), eq(roundOn, 0),
+                       eq(busy, 0), eq(rStake, 0), eq(ballsUp, 0))
 
 
 def vis(screens, extra=None):
@@ -636,40 +649,38 @@ tile.script(
                     [show(), switch_costume_r(item_of(revealed, tIdx), "hidden")],
                     [hide()])),
 )
-tile.script(
-    when_clicked(),
-    if_(and_(and_(eq(screen, 3), eq(roundOn, 1)),
-             and_(eq(busy, 0), eq(item_of(revealed, tIdx), 1))),
-        if_else(list_contains(bombs, tIdx),
-                [set_var(busy, 1), replace_item(revealed, tIdx, 3),
-                 SFX("bomb"), broadcast(p, "mineBoom")],
-                [replace_item(revealed, tIdx, 2),
-                 SFX("gem", mul(picks, 10)),
-                 change_var(picks, 1),
-                 set_var(mult, item_of(mineMults,
-                                       add(mul(sub(bombsIdx, 1), 24), picks)))])),
-)
+# Pressing a control is written once, as a function of the control's index,
+# and emitted twice: into the clone's click script with its own index, and
+# into the joystick's press procedure with the focused one (see ARCADE below).
+# Both copies come from this one definition, so they cannot disagree.
+def mine_pick(k):
+    return if_(and_(and_(eq(screen, 3), eq(roundOn, 1)),
+                    and_(eq(busy, 0), eq(item_of(revealed, k), 1))),
+               if_else(list_contains(bombs, k),
+                       [set_var(busy, 1), replace_item(revealed, k, 3),
+                        SFX("bomb"), broadcast(p, "mineBoom")],
+                       [replace_item(revealed, k, 2),
+                        SFX("gem", mul(picks, 10)),
+                        change_var(picks, 1),
+                        set_var(mult, item_of(mineMults,
+                                              add(mul(sub(bombsIdx, 1), 24),
+                                                  picks)))]))
+
+
+tile.script(when_clicked(), mine_pick(tIdx))
 
 cash = p.sprite("CashoutBtn")
 C(cash, "cash", "btn_cashout")
 cash.x, cash.y, cash.visible = 158, -152, False
 cash.script(when_flag(), goto(158, -152))
-cash.script(
-    when_flag(),
-    forever(if_else(
-        any_of(and_(and_(eq(screen, 3), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(picks, 0))),
-               and_(and_(eq(screen, 6), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(stRow, 1))),
-               and_(and_(eq(screen, 7), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(dkLane, 0))),
-               and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0)),
-               and_(and_(eq(screen, 9), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(amSlot, 0))),
-               and_(and_(eq(screen, 10), eq(roundOn, 1)),
-                    and_(eq(busy, 0), gt(cfStreak, 0)))),
-        [show()], [hide()])),
-)
+CASH_OK = lambda: any_of(
+    and_(and_(eq(screen, 3), eq(roundOn, 1)), and_(eq(busy, 0), gt(picks, 0))),
+    and_(and_(eq(screen, 6), eq(roundOn, 1)), and_(eq(busy, 0), gt(stRow, 1))),
+    and_(and_(eq(screen, 7), eq(roundOn, 1)), and_(eq(busy, 0), gt(dkLane, 0))),
+    and_(and_(eq(screen, 8), eq(roundOn, 1)), eq(busy, 0)),
+    and_(and_(eq(screen, 9), eq(roundOn, 1)), and_(eq(busy, 0), gt(amSlot, 0))),
+    and_(and_(eq(screen, 10), eq(roundOn, 1)), and_(eq(busy, 0), gt(cfStreak, 0))))
+cash.script(when_flag(), forever(if_else(CASH_OK(), [show()], [hide()])))
 
 reset_board = Proc(cash, "reset mines", [], warp=True)
 define(cash, reset_board,
@@ -698,13 +709,15 @@ cash.script(
                  set_var(picks, 0), set_var(mult, 0),
                  reset_board.call(), set_var(roundOn, 1)])),
 )
-cash.script(when_clicked(), if_(eq(screen, 6), broadcast(p, "stairCash")))
-cash.script(when_clicked(), if_(eq(screen, 7), broadcast(p, "duckCash")))
-cash.script(when_clicked(), if_(eq(screen, 8), broadcast(p, "avCash")))
-cash.script(when_clicked(), if_(eq(screen, 9), broadcast(p, "amCash")))
-cash.script(when_clicked(), if_(eq(screen, 10), broadcast(p, "coinCash")))
+# Every game's cash-out is a broadcast its own controller answers, Mines
+# included, so a click and the joystick's X button reach the same handler.
+CASH_MSG = {3: "minesCash", 6: "stairCash", 7: "duckCash", 8: "avCash",
+            9: "amCash", 10: "coinCash"}
+cash_press = lambda: [if_(eq(screen, s), broadcast(p, m))
+                      for s, m in CASH_MSG.items()]
+cash.script(when_clicked(), cash_press())
 cash.script(
-    when_clicked(),
+    when_bc(p, "minesCash"),
     if_(and_(eq(screen, 3), and_(eq(roundOn, 1), gt(picks, 0))),
         set_var(busy, 1),
         set_var(win, round_(mul(bet, mult))), change_var(chips, win),
@@ -1018,6 +1031,9 @@ card.script(
 )
 
 # ---------------- action buttons
+# (sprite, x, visible-when, message) for every button, kept for the joystick:
+# a control is focusable exactly when its button is on screen.
+BJ_BTNS = []
 for nm, f, xx, msg, cond in [
         ("HitBtn", "btn_hit", -150, "bjHit", None),
         ("StandBtn", "btn_stand", -50, "bjStand", None),
@@ -1032,6 +1048,7 @@ for nm, f, xx, msg, cond in [
     b.script(when_flag(), goto(xx, -152))
     b.script(when_flag(), forever(if_else(vis_c, [show()], [hide()])))
     b.script(when_clicked(), broadcast(p, msg))
+    BJ_BTNS.append((nm, f, xx, vis_c, msg))
 
 for nm, f, xx, msg in [("InsureBtn", "btn_insure", -60, "bjInsure"),
                        ("NoInsBtn", "btn_noins", 60, "bjNoIns")]:
@@ -1043,6 +1060,7 @@ for nm, f, xx, msg in [("InsureBtn", "btn_insure", -60, "bjInsure"),
              forever(if_else(and_(eq(screen, 4), eq(bjPhase, 1)),
                              [show()], [hide()])))
     b.script(when_clicked(), broadcast(p, msg))
+    BJ_BTNS.append((nm, f, xx, and_(eq(screen, 4), eq(bjPhase, 1)), msg))
 
 # ---------------- hand overview labels
 for nm, f, yy in [("DealerPlq", "plq_dealer", 100), ("YouPlq", "plq_you", -12)]:
@@ -1059,7 +1077,10 @@ title = p.sprite("Title")
 C(title, "title", "title")
 title.x, title.y = 0, 106
 title.script(when_flag(), goto(0, 106))
-title.script(when_flag(), vis([0]))
+# the OUT OF CHIPS banner takes the title's place in the lobby (see ARCADE)
+title.script(when_flag(),
+             forever(if_else(and_(eq(screen, 0), not_(BROKE())),
+                             [show()], [hide()])))
 
 menu = p.sprite("MenuTile")
 for nm, f in [("slots", "lt_slots"), ("plinko", "lt_plinko"),
@@ -1085,40 +1106,39 @@ menu.script(
             [if_else(not_(gt(mIdx, 8)),
                      [goto(add(-132, mul(88, sub(mIdx, 5))), -47)],
                      [goto(add(-88, mul(88, sub(mIdx, 9))), -127)])]),
+    # lifts under the mouse, and under the joystick's focus (padOn, padFocus
+    # and the 100 + tile id scheme are defined with the rest of ARCADE below)
     forever(if_else(eq(screen, 0),
                     [show(),
-                     if_else(touching_mouse(),
+                     if_else(or_(touching_mouse(),
+                                 and_(eq(padOn, 1),
+                                      eq(padFocus, add(100, mIdx)))),
                              [set_size(103), set_effect("brightness", 10)],
                              [set_size(100), clear_effects()])],
                     [hide()])),
 )
-menu.script(
-    when_clicked(),
-    if_(eq(screen, 0),
-        SFX("click"),
-        if_(eq(mIdx, 1), broadcast(p, "openSlots")),
-        if_(eq(mIdx, 2), broadcast(p, "openPlinko")),
-        if_(eq(mIdx, 3), broadcast(p, "openMines")),
-        if_(eq(mIdx, 4), broadcast(p, "openBJ")),
-        if_(eq(mIdx, 5), broadcast(p, "openRoulette")),
-        if_(eq(mIdx, 6), broadcast(p, "openStairs")),
-        if_(eq(mIdx, 7), broadcast(p, "openDuck")),
-        if_(eq(mIdx, 8), broadcast(p, "openCrash")),
-        if_(eq(mIdx, 9), broadcast(p, "openAvia")),
-        if_(eq(mIdx, 10), broadcast(p, "openCoin")),
-        if_(eq(mIdx, 11), broadcast(p, "openDice"))),
-)
+# the open message for lobby tile n is the one for screen n
+OPEN_MSG = {v: k for k, v in SCREENS.items() if v > 0}
+
+
+def menu_open(k):
+    return if_(eq(screen, 0),
+               SFX("click"),
+               [if_(eq(k, n), broadcast(p, OPEN_MSG[n])) for n in sorted(OPEN_MSG)])
+
+
+menu.script(when_clicked(), menu_open(mIdx))
 
 # ===================================================== chrome
 back = p.sprite("BackBtn")
 C(back, "back", "btn_back")
 back.x, back.y, back.visible = 192, 163, False
 back.script(when_flag(), goto(192, 163))
+BACK_OK = lambda: and_(gt(screen, 0), eq(busy, 0))
+back_press = lambda: if_(eq(busy, 0), SFX("click"), broadcast(p, "lobby"))
 back.script(when_flag(),
-            forever(if_else(and_(gt(screen, 0), eq(busy, 0)),
-                            [show()], [hide()])))
-back.script(when_clicked(), if_(eq(busy, 0), SFX("click"),
-                                broadcast(p, "lobby")))
+            forever(if_else(BACK_OK(), [show()], [hide()])))
+back.script(when_clicked(), back_press())
 
 betp = p.sprite("BetPlaque")
 C(betp, "plq", "bet_plaque")
@@ -1130,6 +1150,12 @@ betp.script(when_flag(),
 
 CANBET = lambda: and_(gt(screen, 0), and_(eq(busy, 0), eq(roundOn, 0)))
 HELD = lambda: and_(touching_mouse(), mouse_down())
+# The joystick holds a bet button down three ways: the L / R shoulder buttons
+# anywhere, or A held while the focus frame is on it. Each is just another way
+# for HELD to be true, so the repeat timing below serves all of them.
+PAD_BET = {-1: ("l", 2), 1: ("r", 3)}           # key, focus id (see ARCADE)
+PADHELD = lambda d: or_(key_pressed(PAD_BET[d][0]),
+                        and_(eq(padA, 1), eq(padFocus, PAD_BET[d][1])))
 
 for nm, f, xx, d in [("BetMinus", "btn_minus", -205, -1),
                      ("BetPlus", "btn_plus", -99, 1)]:
@@ -1150,15 +1176,16 @@ for nm, f, xx, d in [("BetMinus", "btn_minus", -205, -1),
     b.script(
         when_flag(),
         forever(
-            if_(and_(HELD(), CANBET()),
+            if_(and_(or_(HELD(), PADHELD(d)), CANBET()),
                 step, SFX("click"), wait(0.32), set_var(rep, 0),
-                repeat_until(not_(and_(HELD(), CANBET())),
+                repeat_until(not_(and_(or_(HELD(), PADHELD(d)), CANBET())),
                              step, change_var(rep, 1),
                              if_else(gt(rep, 6), [wait(0.045)], [wait(0.11)]))),
             wait(0.02)),
     )
 
 # selectors
+SELECTORS = []
 for nm, file_pfx, count, var, xx, scr, guard in [
         ("RowsSel", "sel_rows", 3, rowsIdx, -40, 2, "plinko"),
         ("RiskSel", "sel_risk", 3, riskIdx, 24, 2, "plinko"),
@@ -1183,18 +1210,33 @@ for nm, file_pfx, count, var, xx, scr, guard in [
     s.script(when_flag(),
              forever(switch_costume_r(var, "c1"),
                      if_else(ok, [show()], [hide()])))
-    s.script(
-        when_clicked(),
-        if_(ok,
-            SFX("click"),
-            change_var(var, 1),
-            if_(gt(var, count), set_var(var, 1)),
-            {"plinko": lambda: broadcast(p, "refreshPlinko"),
-             "stairs": lambda: broadcast(p, "stairRefresh"),
-             "duck": lambda: broadcast(p, "duckRefresh"),
-             }.get(guard, lambda: None)()),
-    )
+    press = (lambda ok=ok, var=var, count=count, guard=guard:
+             if_(ok,
+                 SFX("click"),
+                 change_var(var, 1),
+                 if_(gt(var, count), set_var(var, 1)),
+                 {"plinko": lambda: broadcast(p, "refreshPlinko"),
+                  "stairs": lambda: broadcast(p, "stairRefresh"),
+                  "duck": lambda: broadcast(p, "duckRefresh"),
+                  }.get(guard, lambda: None)()))
+    s.script(when_clicked(), press())
+    SELECTORS.append((nm, f"{file_pfx}1", xx, ok, press))
 
+# where the action button sits on each screen, and what it says there
+ACT_AT = {1: (75, "spin"), 2: (110, "drop"), 3: (52, "start"),
+          4: (75, "deal"), 5: (110, "spin"), 6: (52, "start"), 7: (52, "go"),
+          8: (52, "fly"), 9: (52, "takeoff"), 10: (52, "flip"),
+          11: (52, "roll")}
+ACT_FILE = {"spin": "btn_spin", "drop": "btn_drop", "start": "btn_start",
+            "deal": "btn_deal", "go": "btn_go", "fly": "btn_launch",
+            "takeoff": "btn_takeoff", "flip": "btn_flip", "roll": "btn_roll"}
+# exactly the conditions the forever loop below shows the button under
+ACT_OK = lambda: and_(
+    and_(not_(eq(screen, 0)), not_(eq(busy, 1))),
+    any_of(*([eq(screen, n) for n in (1, 2, 5, 7, 10)] +
+             [and_(eq(screen, n), eq(roundOn, 0)) for n in (3, 6, 8, 9, 11)] +
+             [and_(eq(screen, 4), eq(bjPhase, 0))])))
+act_press = lambda: if_(eq(busy, 0), SFX("click"), broadcast(p, "action"))
 act = p.sprite("ActionBtn")
 for nm, f in [("spin", "btn_spin"), ("drop", "btn_drop"),
               ("start", "btn_start"), ("deal", "btn_deal"),
@@ -1231,8 +1273,7 @@ act.script(
                  if_(eq(screen, 11), goto(52, -152), switch_costume("roll"),
                      if_else(eq(roundOn, 0), [show()], [hide()]))])),
 )
-act.script(when_clicked(), if_(eq(busy, 0), SFX("click"),
-                               broadcast(p, "action")))
+act.script(when_clicked(), act_press())
 
 msg = p.sprite("Msg")
 for nm, _t, _c in AV.MESSAGES:
@@ -1278,17 +1319,18 @@ spot.script(
                         change_effect("ghost", -25), wait(0.06))],
                 [clear_effects()])),
 )
-spot.script(
-    when_clicked(),
-    if_(and_(and_(eq(screen, 5), eq(busy, 0)), not_(lt(chips, bet))),
-        change_var(chips, mul(bet, -1)),
-        if_(eq(item_of(rBets, sIdx), 0),
-            set_var(newChip, sIdx), clone("RChip")),
-        replace_item(rBets, sIdx, add(item_of(rBets, sIdx), bet)),
-        change_var(rStake, bet),
-        add_to(rHistI, sIdx), add_to(rHistA, bet),
-        SFX("chip"), broadcast(p, "rChips")),
-)
+def spot_bet(k):
+    return if_(and_(and_(eq(screen, 5), eq(busy, 0)), not_(lt(chips, bet))),
+               change_var(chips, mul(bet, -1)),
+               if_(eq(item_of(rBets, k), 0),
+                   set_var(newChip, k), clone("RChip")),
+               replace_item(rBets, k, add(item_of(rBets, k), bet)),
+               change_var(rStake, bet),
+               add_to(rHistI, k), add_to(rHistA, bet),
+               SFX("chip"), broadcast(p, "rChips"))
+
+
+spot.script(when_clicked(), spot_bet(sIdx))
 
 rchip = p.sprite("RChip")
 for n in range(1, 6):
@@ -1424,16 +1466,13 @@ clr = p.sprite("ClearBtn")
 C(clr, "b", "btn_clear")
 clr.x, clr.y, clr.visible = -40, -152, False
 clr.script(when_flag(), goto(-40, -152))
+STAKED_OK = lambda: and_(eq(screen, 5), and_(eq(busy, 0), gt(rStake, 0)))
 clr.script(when_flag(),
-           forever(if_else(and_(eq(screen, 5), and_(eq(busy, 0), gt(rStake, 0))),
-                           [show()], [hide()])))
-clr.script(
-    when_clicked(),
-    if_(and_(eq(screen, 5), eq(busy, 0)),
-        change_var(chips, rStake),
-        clear_bets.call() if False else None,
-        broadcast(p, "rClear")),
-)
+           forever(if_else(STAKED_OK(), [show()], [hide()])))
+clear_press = lambda: if_(and_(eq(screen, 5), eq(busy, 0)),
+                          change_var(chips, rStake),
+                          broadcast(p, "rClear"))
+clr.script(when_clicked(), clear_press())
 rctl.script(when_bc(p, "rClear"), clear_bets.call(), broadcast(p, "rChips"))
 
 und = p.sprite("UndoBtn")
@@ -1441,20 +1480,18 @@ C(und, "b", "btn_undo")
 und.x, und.y, und.visible = 24, -152, False
 und.script(when_flag(), goto(24, -152))
 und.script(when_flag(),
-           forever(if_else(and_(eq(screen, 5), and_(eq(busy, 0), gt(rStake, 0))),
-                           [show()], [hide()])))
-und.script(
-    when_clicked(),
-    if_(and_(and_(eq(screen, 5), eq(busy, 0)), gt(len_of(rHistI), 0)),
-        set_var(tmp, item_of(rHistI, len_of(rHistI))),
-        set_var(tmp2, item_of(rHistA, len_of(rHistA))),
-        replace_item(rBets, tmp, sub(item_of(rBets, tmp), tmp2)),
-        change_var(rStake, mul(tmp2, -1)),
-        change_var(chips, tmp2),
-        delete_of(rHistI, len_of(rHistI)),
-        delete_of(rHistA, len_of(rHistA)),
-        broadcast(p, "rChips")),
-)
+           forever(if_else(STAKED_OK(), [show()], [hide()])))
+undo_press = lambda: if_(
+    and_(and_(eq(screen, 5), eq(busy, 0)), gt(len_of(rHistI), 0)),
+    set_var(tmp, item_of(rHistI, len_of(rHistI))),
+    set_var(tmp2, item_of(rHistA, len_of(rHistA))),
+    replace_item(rBets, tmp, sub(item_of(rBets, tmp), tmp2)),
+    change_var(rStake, mul(tmp2, -1)),
+    change_var(chips, tmp2),
+    delete_of(rHistI, len_of(rHistI)),
+    delete_of(rHistA, len_of(rHistA)),
+    broadcast(p, "rChips"))
+und.script(when_clicked(), undo_press())
 
 # ===================================================== STAIRS
 stile = p.sprite("StairTile")
@@ -1493,15 +1530,16 @@ stile.script(
                 [hide()])),
 )
 stile.script(when_bc(p, "screenChanged"), broadcast(p, "stairRefresh"))
-stile.script(
-    when_clicked(),
-    if_(and_(and_(eq(screen, 6), eq(roundOn, 1)),
-             and_(eq(busy, 0),
-                  and_(eq(stR, stRow),
-                       not_(gt(stC, item_of(diffTiles, stDiff)))))),
-        set_var(stClick, add(mul(sub(stR, 1), 4), stC)),
-        broadcast(p, "stairPick")),
-)
+def stair_pick(r, c):
+    return if_(and_(and_(eq(screen, 6), eq(roundOn, 1)),
+                    and_(eq(busy, 0),
+                         and_(eq(r, stRow),
+                              not_(gt(c, item_of(diffTiles, stDiff)))))),
+               set_var(stClick, add(mul(sub(r, 1), 4), c)),
+               broadcast(p, "stairPick"))
+
+
+stile.script(when_clicked(), stair_pick(stR, stC))
 
 smul = p.sprite("StairMult")
 for n in range(1, 46):
@@ -2495,6 +2533,444 @@ dcc.script(
              set_var(roundOn, 0),
              wait(1.4), set_var(msgId, 1), set_var(busy, 0)])),
 )
+
+
+# ===================================================== ARCADE
+# Joystick play for the arcade cabinet. The cabinet's bridge turns each
+# player's stick and buttons into key presses (docs/ARCADE.md has the full
+# contract); this section turns those keys into the same presses a mouse makes.
+#
+#   arrows        move a gold frame between whatever can be clicked right now
+#   space   (A)   press the framed control; held, it repeats a bet button
+#   enter (START) the same, and starts a fresh 1,000 once you are out of chips
+#   b  (B/SELECT) back to the lobby
+#   l / r         bet down / up, held to repeat
+#   y             the game's main action (SPIN, DEAL, DROP, GO ...)
+#   x             cash out
+#
+# A control is focusable exactly when its sprite would be on screen, because
+# its availability is the same Python expression its own forever loop shows it
+# under. What a press does is the same Python function its click script runs.
+# So the frame never lands on, and A never presses, anything a mouse could not.
+#
+# The mouse keeps working. A click hides the frame (padOn = 0) and the next
+# arrow or A press only brings it back, so a desktop player never has an
+# invisible focus pressed for them.
+import assets_v7 as AV7
+AV7.build()
+
+
+def _size(file, scale=1.0):
+    from PIL import Image as _I
+    with _I.open(os.path.join(A, file + ".png")) as im:
+        return im.width / 2 * scale, im.height / 2 * scale
+
+
+def _frame(file, scale=1.0, rounded=False):
+    return AV7.focus_frame(*_size(file, scale), rounded=rounded)
+
+
+pad = p.sprite("PadFocus")
+pad.visible = False
+padQ    = p.var("padQ", 0)        # control id being asked about
+padOk   = p.var("padOk", 0)       # ... is it on screen right now
+padPX   = p.var("padPX", 0)       # ... its centre
+padPY   = p.var("padPY", 0)
+padPC   = p.var("padPC", "")      # ... and the frame costume that fits it
+padK    = p.var("padK", 0)        # index within a grid of clones
+padScr  = p.var("padScr", -1)     # the screen the focus was chosen for
+padAuto = p.var("padAuto", 1)     # 1 = the game placed the focus, not the stick
+padCX   = p.var("padCX", 0)
+padCY   = p.var("padCY", 0)
+padDX   = p.var("padDX", 0)
+padDY   = p.var("padDY", 0)
+padBest = p.var("padBest", 0)
+padBestS= p.var("padBestS", 0)
+padI    = p.var("padI", 0)
+padAl   = p.var("padAl", 0)
+padSc   = p.var("padSc", 0)
+padDir  = p.var("padDir", 0)      # stick direction this frame, 0 = centred
+padDirP = p.var("padDirP", 0)     # ... and last frame
+padRT   = p.var("padRT", 0)       # timer value the next auto-repeat is due
+padRep  = p.var("padRep", 0)      # repeats so far in this hold
+idleT   = p.var("idleT", 0)       # timer value of the last sign of a player
+idleC   = p.var("idleC", 0)       # the bankroll as of then
+idleS   = p.var("idleS", 0)       # ... and the screen
+PREV = {k: p.var(f"padPrev_{k}", 0) for k in ("space", "enter", "b", "x", "y")}
+
+frames = {}                       # costume name -> added
+
+
+def F(name):
+    if name not in frames:
+        frames[name] = C(pad, name, name)
+    return name
+
+
+# --- the controls --------------------------------------------------
+# Single sprites: (id, availability, x, y, frame costume, press blocks).
+# x, y and the costume may be reporters; press may be None for controls that
+# act while held (the bet buttons) or under the stick (the dice slider).
+SINGLES = []
+SINGLES.append((1, BACK_OK, 192, 163, F(_frame("btn_back")), back_press))
+SINGLES.append((2, CANBET, -205, -152,
+                F(_frame("btn_minus", rounded=True)), None))
+SINGLES.append((3, CANBET, -99, -152,
+                F(_frame("btn_plus", rounded=True)), None))
+padActX = p.lst("padActX", [str(ACT_AT.get(n, (0,))[0]) for n in range(1, 12)])
+padActC = p.lst("padActC", [F(_frame(ACT_FILE[ACT_AT[n][1]]))
+                            for n in range(1, 12)])
+SINGLES.append((4, ACT_OK, item_of(padActX, screen), -152,
+                item_of(padActC, screen), act_press))
+SINGLES.append((5, CASH_OK, 158, -152, F(_frame("btn_cashout")), cash_press))
+for i, (nm, f, xx, vis_c, msg) in enumerate(BJ_BTNS):
+    SINGLES.append((6 + i, (lambda v=vis_c: v), xx, -152, F(_frame(f)),
+                    (lambda m=msg: broadcast(p, m))))
+ID_SEL = 6 + len(BJ_BTNS)
+SEL_ID = {}
+for i, (nm, f, xx, ok, press) in enumerate(SELECTORS):
+    SEL_ID[nm] = ID_SEL + i
+    SINGLES.append((ID_SEL + i, (lambda v=ok: v), xx, -152, F(_frame(f)), press))
+ID_CLEAR = ID_SEL + len(SELECTORS)
+SINGLES.append((ID_CLEAR, STAKED_OK, -40, -152, F(_frame("btn_clear")),
+                clear_press))
+SINGLES.append((ID_CLEAR + 1, STAKED_OK, 24, -152, F(_frame("btn_undo")),
+                undo_press))
+ID_SLIDER = ID_CLEAR + 2
+SLIDER_OK = lambda: all_of(eq(screen, 11), eq(roundOn, 0), eq(busy, 0))
+SINGLES.append((ID_SLIDER, SLIDER_OK, THX(), AV6.RAIL_Y + 10,
+                F(_frame("dice_thresh")), None))
+ID_BJ = {nm: 6 + i for i, (nm, *_r) in enumerate(BJ_BTNS)}
+assert ID_SLIDER < 100
+
+# Grids of clones: (base id, count, availability(k), x(k), y(k), costume(k),
+# press(k)). k is the 1-based clone index, the same one the clone carries.
+# The lobby, mines and roulette never move, so their geometry is a table;
+# the stairs follow the active row and are worked out live.
+GX, GY, GC = [], [], []
+
+
+def _grid_table(xs, ys, cs):
+    off = len(GX)
+    GX.extend(xs); GY.extend(ys); GC.extend(cs)
+    return off
+
+
+LOBBY_FILES = ["lt_slots", "lt_plinko", "lt_mines", "lt_bj", "lt_roulette",
+               "lt_stairs", "lt_duck", "lt_crash", "lt_avia", "lt_coin",
+               "lt_dice"]
+_lx = [(-132 + 88 * (k - 1)) if k <= 4 else
+       (-132 + 88 * (k - 5)) if k <= 8 else (-88 + 88 * (k - 9))
+       for k in range(1, 12)]
+_ly = [33 if k <= 4 else (-47 if k <= 8 else -127) for k in range(1, 12)]
+OFF_LOBBY = _grid_table(_lx, _ly, [F(_frame(f, 1.03)) for f in LOBBY_FILES])
+OFF_MINES = _grid_table([-96 + 48 * ((k - 1) % 5) for k in range(1, 26)],
+                        [100 - 48 * ((k - 1) // 5) for k in range(1, 26)],
+                        [F(_frame("tile_hidden"))] * 25)
+OFF_SPOTS = _grid_table(SPOTX, SPOTY,
+                        [F(_frame(f"rs{n}")) for n in range(1, 50)])
+padGX = p.lst("padGX", [str(v) for v in GX])
+padGY = p.lst("padGY", [str(v) for v in GY])
+padGC = p.lst("padGC", GC)
+GT = lambda off: (lambda k: item_of(padGX, add(k, off)),
+                  lambda k: item_of(padGY, add(k, off)),
+                  lambda k: item_of(padGC, add(k, off)))
+STAIR_FRAME = F(_frame("st_hidden", 1.04))      # the live row is drawn at 104%
+GRIDS = [
+    (100, 11, lambda k: eq(screen, 0), *GT(OFF_LOBBY), menu_open),
+    (200, 25, lambda k: all_of(eq(screen, 3), eq(roundOn, 1), eq(busy, 0)),
+     *GT(OFF_MINES), mine_pick),
+    (300, 49, lambda k: and_(eq(screen, 5), eq(busy, 0)),
+     *GT(OFF_SPOTS), spot_bet),
+    # a stairs id names a COLUMN of whichever row is live, so the frame
+    # climbs with the player instead of being stranded on a finished row
+    (400, 4, lambda k: all_of(eq(screen, 6), eq(roundOn, 1), eq(busy, 0),
+                              not_(gt(k, item_of(diffTiles, stDiff)))),
+     lambda k: add(-35, mul(50, sub(sub(k, 1),
+                                    div(sub(item_of(diffTiles, stDiff), 1), 2)))),
+     lambda k: add(-98, mul(26, sub(stRow, 1))),
+     lambda k: STAIR_FRAME,
+     lambda k: stair_pick(stRow, k)),
+]
+
+# Per screen, every control in the order the focus falls back through when
+# the one it is on disappears: the first that is on screen wins. That is what
+# carries the frame from DEAL to HIT, from START into the mines grid, from
+# LAUNCH to CASH OUT, and back again when the round ends.
+S = SEL_ID
+BETS_BACK = [3, 2, 1]
+ORDER = {
+    0: [100 + k for k in range(1, 12)],
+    1: [4] + BETS_BACK,
+    2: [4, S["RowsSel"], S["RiskSel"]] + BETS_BACK,
+    3: [4, 213] + [200 + k for k in range(1, 26) if k != 13] +
+       [5, S["BombsSel"]] + BETS_BACK,
+    4: [4, ID_BJ["HitBtn"], ID_BJ["StandBtn"], ID_BJ["DoubleBtn"],
+        ID_BJ["SplitBtn"], ID_BJ["NoInsBtn"], ID_BJ["InsureBtn"]] + BETS_BACK,
+    # roulette opens on RED: spinning with nothing staked does nothing
+    5: [338] + [300 + k for k in range(1, 50) if k != 38] +
+       [4, ID_CLEAR, ID_CLEAR + 1] + BETS_BACK,
+    6: [4, 401, 402, 403, 404, 5, S["DiffSel"]] + BETS_BACK,
+    7: [4, 5, S["DuckSel"]] + BETS_BACK,
+    8: [4, 5, S["AvSel"]] + BETS_BACK,
+    9: [4, 5, S["AviaSel"]] + BETS_BACK,
+    10: [4, 5, S["CallSel"]] + BETS_BACK,
+    11: [4, ID_SLIDER, S["SideSel"]] + BETS_BACK,
+}
+_ids, _from, _cnt = [], [], []
+for scr in range(12):
+    _from.append(len(_ids) + 1); _cnt.append(len(ORDER[scr]))
+    _ids.extend(ORDER[scr])
+padIds = p.lst("padIds", [str(v) for v in _ids])
+padFrom = p.lst("padFrom", [str(v) for v in _from])
+padCnt = p.lst("padCnt", [str(v) for v in _cnt])
+_known = {c[0] for c in SINGLES} | {g[0] + k for g in GRIDS
+                                    for k in range(1, g[1] + 1)}
+assert set(_ids) <= _known, set(_ids) - _known
+
+# --- probe: where is control padQ, and is it on screen --------------
+# Always reports the position, so a move can start from a control that has
+# just gone (the frame is hidden, but the stick still knows where it was).
+probe = Proc(pad, "pad probe", [], warp=True)
+_pb = [set_var(padOk, 0)]
+for cid, ok, x, y, cost, _press in SINGLES:
+    _pb.append(if_(eq(padQ, cid),
+                   set_var(padPX, x), set_var(padPY, y), set_var(padPC, cost),
+                   if_(ok(), set_var(padOk, 1))))
+for base, n, ok, gx, gy, gc, _press in GRIDS:
+    _pb.append(if_(and_(gt(padQ, base), lt(padQ, base + n + 1)),
+                   set_var(padK, sub(padQ, base)),
+                   set_var(padPX, gx(padK)), set_var(padPY, gy(padK)),
+                   set_var(padPC, gc(padK)),
+                   if_(ok(padK), set_var(padOk, 1))))
+define(pad, probe, *_pb, x=40, y=40)
+
+# --- press: do what a click on control padFocus does ---------------
+pad_press = Proc(pad, "pad press", [], warp=True)
+_pr = []
+for cid, ok, x, y, cost, act in SINGLES:
+    if act is not None:
+        _pr.append(if_(eq(padFocus, cid), act()))
+for base, n, ok, gx, gy, gc, act in GRIDS:
+    _pr.append(if_(and_(gt(padFocus, base), lt(padFocus, base + n + 1)),
+                   set_var(padK, sub(padFocus, base)), act(padK)))
+define(pad, pad_press, *_pr, x=500, y=40)
+
+SCR1 = add(screen, 1)
+
+# --- move: the nearest control in the stick's direction -------------
+# Distance along the direction plus 1.5 x the sideways offset, so a control
+# straight ahead beats a nearer one well off to the side - but a near one only
+# slightly off still wins, which is how a roulette dozen (offset half a
+# column from the even-money row) is reached instead of being jumped over to
+# the numbers beyond it. Anything not at least a few units ahead is ignored,
+# which is what stops a move along a row from picking a neighbour in the same
+# column.
+move = Proc(pad, "pad move", [], warp=True)
+define(pad, move,
+       set_var(padQ, padFocus), probe.call(),
+       set_var(padCX, padPX), set_var(padCY, padPY),
+       set_var(padBest, 0), set_var(padBestS, 1000000),
+       set_var(padI, item_of(padFrom, SCR1)),
+       repeat(item_of(padCnt, SCR1),
+              set_var(padQ, item_of(padIds, padI)),
+              if_(not_(eq(padQ, padFocus)),
+                  probe.call(),
+                  if_(eq(padOk, 1),
+                      set_var(padAl, add(mul(sub(padPX, padCX), padDX),
+                                         mul(sub(padPY, padCY), padDY))),
+                      if_(gt(padAl, 3),
+                          set_var(padSc, add(padAl, mul(1.5, add(
+                              mathop("abs", mul(sub(padPX, padCX), padDY)),
+                              mathop("abs", mul(sub(padPY, padCY), padDX)))))),
+                          if_(lt(padSc, padBestS),
+                              set_var(padBestS, padSc),
+                              set_var(padBest, padQ))))),
+              change_var(padI, 1)),
+       if_(gt(padBest, 0), set_var(padFocus, padBest), set_var(padAuto, 0),
+           SFX("tick", 40)),
+       set_var(padQ, padFocus), probe.call(),
+       x=1000, y=40)
+
+# --- fallback: take the first control in the screen's order that is there.
+# Run when the focus disappears, and every frame for as long as the focus is
+# one the game placed rather than one the player chose. The second part is
+# what brings the frame home: a mines round ends with busy still up for a
+# beat, START is hidden in that beat, and the frame would otherwise settle on
+# the first thing that was showing - the BOMBS selector - and stay there.
+fallback = Proc(pad, "pad fallback", [], warp=True)
+define(pad, fallback,
+       set_var(padBest, 0),
+       set_var(padI, item_of(padFrom, SCR1)),
+       repeat(item_of(padCnt, SCR1),
+              if_(eq(padBest, 0),
+                  set_var(padQ, item_of(padIds, padI)),
+                  probe.call(),
+                  if_(eq(padOk, 1), set_var(padBest, padQ))),
+              change_var(padI, 1)),
+       if_(gt(padBest, 0), set_var(padFocus, padBest), set_var(padAuto, 1)),
+       set_var(padQ, padFocus), probe.call(),
+       x=1000, y=700)
+
+# --- a new screen: start from its first control. Back in the lobby that is
+# the tile of the game just left, so B then A replays it.
+enter = Proc(pad, "pad enter", [], warp=True)
+define(pad, enter,
+       if_else(eq(screen, 0),
+               [if_else(and_(gt(padScr, 0), lt(padScr, 12)),
+                        [set_var(padFocus, add(100, padScr))],
+                        [set_var(padFocus, 101)]),
+                set_var(padAuto, 0)],
+               [set_var(padFocus, item_of(padIds, item_of(padFrom, SCR1))),
+                set_var(padAuto, 1)]),
+       set_var(padScr, screen),
+       x=40, y=900)
+
+# --- the stick moved (or is being held) -----------------------------
+# On the dice slider left and right drag the threshold, a whole point a tap
+# and five once held; up and down still leave it. Everywhere else it moves
+# the frame. While the frame is hidden the first push only brings it back.
+fire = Proc(pad, "pad stick", [], warp=True)
+define(pad, fire,
+       if_else(
+           eq(padOn, 0),
+           [set_var(padOn, 1)],
+           [if_else(
+               and_(and_(eq(padFocus, ID_SLIDER), gt(padDir, 2)), SLIDER_OK()),
+               [set_var(padSc, 100),
+                if_(gt(padRep, 7), set_var(padSc, 500)),
+                if_else(eq(padDir, 3),
+                        [set_var(dcT, mul(add(mathop("ceiling", div(dcT, padSc)),
+                                              -1), padSc))],
+                        [set_var(dcT, mul(add(mathop("floor", div(dcT, padSc)),
+                                              1), padSc))]),
+                SFX("tick", 40)],
+               [set_var(padDX, 0), set_var(padDY, 0),
+                if_(eq(padDir, 1), set_var(padDY, 1)),
+                if_(eq(padDir, 2), set_var(padDY, -1)),
+                if_(eq(padDir, 3), set_var(padDX, -1)),
+                if_(eq(padDir, 4), set_var(padDX, 1)),
+                move.call()])]),
+       x=500, y=900)
+
+# --- out of chips ---------------------------------------------------
+# There is still no rebuy. But a cabinet has no green flag, so the end of a
+# session has to be something a player can press: once nothing is staked
+# anywhere and the bankroll cannot cover the smallest bet, START (or a click
+# on the banner) does what the green flag would - a fresh 1,000. BROKE is
+# defined up with the globals, because the lobby title hides for the banner.
+# Idle: a cabinet is a shared machine. Whatever the last player left - their
+# winnings, their losses, a half-played board - the next one should walk up
+# to a fresh session. Only rounds that play themselves out (a rocket or a
+# plane in the air) are waited for; the rest are static and safe to drop.
+IDLE_OK = lambda: all_of(eq(busy, 0), eq(ballsUp, 0),
+                         or_(eq(roundOn, 0),
+                             not_(or_(eq(screen, 8), eq(screen, 9)))),
+                         not_(and_(eq(screen, 0), eq(chips, 1000))))
+pad.script(
+    when_bc(p, "newSession"),
+    # exactly the green flag's reset, and its lobby broadcast
+    set_var(chips, 1000), set_var(betIdx, 6), set_var(bet, 50),
+    set_var(rowsIdx, 2), set_var(riskIdx, 2), set_var(bombsIdx, 2),
+    set_var(idleT, timer()), set_var(padOn, 1),
+    broadcast(p, "lobby"),
+)
+
+brk = p.sprite("BrokeBanner")
+C(brk, "b", "broke_banner")
+brk.visible = False
+brk.script(
+    when_flag(),
+    forever(if_else(and_(BROKE(), eq(msgId, 1)),
+                    [if_else(eq(screen, 0), [goto(0, 106)], [goto(0, -104)]),
+                     go_layer("front"), show()],
+                    [hide()])),
+)
+brk.script(when_clicked(), if_(BROKE(), SFX("click"), broadcast(p, "newSession")))
+
+
+def edge(key, on_press):
+    prev = PREV[key]
+    return if_else(key_pressed(key),
+                   [if_(eq(prev, 0), set_var(idleT, timer()), on_press),
+                    set_var(prev, 1)],
+                   [set_var(prev, 0)])
+
+
+def a_press():
+    return if_else(eq(padOn, 0), [set_var(padOn, 1)],
+                   [set_var(padQ, padFocus), probe.call(),
+                    if_(eq(padOk, 1), set_var(padA, 1), pad_press.call())])
+
+
+pad.script(
+    when_flag(),
+    hide(), set_var(padOn, 1), set_var(padA, 0), set_var(padScr, -1),
+    set_var(padDirP, 0), set_var(idleT, timer()),
+    [set_var(v, 0) for v in PREV.values()],
+    forever(
+        # a click means a mouse is in charge: hide the frame until a pad
+        # button brings it back
+        if_(mouse_down(), set_var(padOn, 0), set_var(padA, 0),
+            set_var(idleT, timer())),
+        if_(not_(eq(screen, padScr)), enter.call()),
+        set_var(padQ, padFocus), probe.call(),
+        if_(or_(eq(padOk, 0), eq(padAuto, 1)), fallback.call()),
+        # the stick: one move per push, then auto-repeat while held
+        set_var(padDir, 0),
+        if_(key_pressed("right arrow"), set_var(padDir, 4)),
+        if_(key_pressed("left arrow"), set_var(padDir, 3)),
+        if_(key_pressed("down arrow"), set_var(padDir, 2)),
+        if_(key_pressed("up arrow"), set_var(padDir, 1)),
+        if_(gt(padDir, 0), set_var(idleT, timer())),
+        if_else(and_(gt(padDir, 0), not_(eq(padDir, padDirP))),
+                [set_var(padRep, 0), fire.call(),
+                 set_var(padRT, add(timer(), 0.38))],
+                [if_(and_(gt(padDir, 0), gt(timer(), padRT)),
+                     change_var(padRep, 1), fire.call(),
+                     set_var(padRT, add(timer(), 0.11)))]),
+        set_var(padDirP, padDir),
+        # A presses the focus; padA stays up while it is held, for the bet
+        # buttons' repeat
+        edge("space", a_press()),
+        edge("enter", if_else(BROKE(), [SFX("click"),
+                                        broadcast(p, "newSession")],
+                              [a_press()])),
+        if_(and_(not_(key_pressed("space")), not_(key_pressed("enter"))),
+            set_var(padA, 0)),
+        edge("b", if_(BACK_OK(), back_press())),
+        edge("y", if_(ACT_OK(), act_press())),
+        edge("x", if_(CASH_OK(), cash_press())),
+        if_(or_(key_pressed("l"), key_pressed("r")), set_var(idleT, timer())),
+        # draw
+        if_else(and_(eq(padOn, 1), eq(padOk, 1)),
+                [goto(padPX, padPY), switch_costume_r(padPC, list(frames)[0]),
+                 set_effect("brightness",
+                            mul(14, mathop("sin", mul(timer(), 320)))),
+                 go_layer("front"), show()],
+                [hide()]),
+        # Idle means nobody has PLAYED, not just that no key went down: a
+        # bet, a payout or a change of screen counts too. A desk player can
+        # sit through a long run of hands with the mouse resting, and
+        # clicks the harnesses fire through startHats() never reach the
+        # mouse at all.
+        if_(or_(not_(eq(chips, idleC)), not_(eq(screen, idleS))),
+            set_var(idleT, timer()), set_var(idleC, chips),
+            set_var(idleS, screen)),
+        if_(and_(gt(sub(timer(), idleT), idleSecs), IDLE_OK()),
+            broadcast(p, "newSession")),
+    ),
+)
+
+json.dump({"singles": {str(c[0]): n for n, c in zip(
+              ["BackBtn", "BetMinus", "BetPlus", "ActionBtn", "CashoutBtn"] +
+              [b[0] for b in BJ_BTNS] + [s_[0] for s_ in SELECTORS] +
+              ["ClearBtn", "UndoBtn", "DiceThresh"], SINGLES)},
+           "grids": {"MenuTile": [100, 11, "mIdx"], "MineTile": [200, 25, "tIdx"],
+                     "RSpot": [300, 49, "sIdx"], "StairTile": [400, 4, "stC"]},
+           "order": {str(k): v for k, v in ORDER.items()},
+           "slider": ID_SLIDER},
+          open(BUILD / "pad.json", "w"), indent=1)
 
 
 out = str(BUILD / "ClubRoyale_fast.sb3") if FAST else str(DIST / "ClubRoyale.sb3")

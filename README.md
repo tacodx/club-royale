@@ -52,6 +52,17 @@ threshold and so computes its multiplier where the slider is left; it floors
 rather than rounds, which means the return is never *above* 0.96, and the
 suite checks all 9401 reachable positions stay within 0.0001 of it.
 
+## Arcade cabinet
+
+The game also runs on a Raspberry Pi arcade cabinet with a joystick and buttons
+per player. A gold frame moves between the buttons with the stick, A presses,
+B goes back to the lobby, L/R change the bet, Y is the game's main action and
+X cashes out. On a cabinet, START gives a fresh 1,000 once you are out of
+chips, and three minutes without play resets the game for the next player.
+[docs/ARCADE.md](docs/ARCADE.md) has the key contract and a ready-made
+`game.json` for the cabinet pipeline. The mouse keeps working exactly as
+before.
+
 ## Verification
 
 The suite loads the real `scratch-vm` and plays the game headlessly, checking
@@ -66,15 +77,21 @@ node tests/play_crash.js     dist/ClubRoyale.sb3 20
 node tests/play_avia.js      dist/ClubRoyale.sb3 30
 node tests/play_coin.js      dist/ClubRoyale.sb3 24
 node tests/play_dice.js      dist/ClubRoyale.sb3 40
+node tests/play_arcade.js    dist/ClubRoyale.sb3
 node tests/overlap.js        dist/ClubRoyale.sb3
 node tests/boot_race.js      dist/ClubRoyale.sb3
 ```
 
 `overlap.js` is the one that catches a button hidden behind another sprite —
 something the logic tests cannot see, because they fire click handlers directly.
+`play_arcade.js` is the opposite end: it presses nothing but the joystick's
+keys, through the VM's real keyboard, and plays every game that way.
 
 ## Limitations
 
+- **No rebuy.** Out of chips is the end of a session; the OUT OF CHIPS banner
+  (START, or a click) starts a fresh 1,000, exactly as the green flag does.
+- **One player.** Both cabinet stations drive the same game.
 - **No saving.** Scratch only persists via cloud variables, which need the
   project shared on scratch.mit.edu with a full Scratcher account.
 - Bankrolls over a million are abbreviated (`12.58M`, `1.26B`) - the top bar
