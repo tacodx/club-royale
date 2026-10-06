@@ -80,6 +80,31 @@ Sprites choose one of two visibility strategies:
   Used by the 49 roulette spots, 36 stair tiles and 17 buckets. This exists to
   keep per-frame work down; see PITFALLS §11.
 
+## Input: mouse and joystick
+
+Every control is clicked with a mouse in the editor and pressed with a
+joystick on the arcade cabinet (`docs/ARCADE.md`). The cabinet sends keys; the
+`PadFocus` sprite (the ARCADE section at the end of `build.py`) turns them into
+presses.
+
+It keeps one focused control id in `padFocus`. Single sprites are ids 1-23;
+clone grids are 100 + lobby tile, 200 + mine tile, 300 + roulette spot, and
+400 + stairs *column* of the live row. Three warped procedures do the work:
+
+- **`pad probe`** - is control `padQ` on screen, where is it, which frame
+  costume fits it. Generated from a registry (`SINGLES`, `GRIDS`) whose
+  availability expressions are the same Python lambdas the sprites' own
+  forever loops show them under.
+- **`pad move`** - the nearest available control in the stick's direction,
+  scored as distance along it plus 1.5 x the sideways offset.
+- **`pad press`** - what a click on the focus would do: the same function each
+  click script is built from, emitted a second time with the focus's index.
+
+`ORDER` lists each screen's controls in the order the focus falls back through
+when the focused one disappears; `padAuto` keeps a game-placed focus following
+that order until the player moves it. A mouse click sets `padOn = 0` and hides
+the frame until the next stick push or A.
+
 ## Shared state
 
 | Variable | Meaning |
@@ -90,6 +115,8 @@ Sprites choose one of two visibility strategies:
 | `bjPhase` | 0 idle, 1 insurance offer, 2 player acting, 3 dealer |
 | `msgId` | banner costume; 1 is blank |
 | `sfxId`, `sfxPitch` | sound index and pitch shift |
+| `padOn`, `padFocus`, `padA` | joystick frame shown, focused control, A held |
+| `idleSecs` | untouched this long -> fresh session (180) |
 
 ## Payout tables
 

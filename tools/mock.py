@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from PIL import Image
-import assets_v11 as A11, assets_v2 as A2
+import assets_v11 as A11, assets_v2 as A2, assets_v7 as A7
 from paths import ASSETS, BUILD
 
 A = str(ASSETS)
@@ -309,6 +309,49 @@ def dice(thresh=4800, side="u", roll=None):
     chrome(c); return c
 
 
+def frame_on(c, file, x, y, scale=1.0, rounded=False):
+    """The joystick's focus frame around a control, as build.py sizes it."""
+    with Image.open(f"{A}/{file}.png") as im:
+        w, h = im.width / 2 * scale, im.height / 2 * scale
+    put(c, A7.focus_frame(w, h, rounded), x, y)
+
+
+LOBBY_TILES = ["lt_slots", "lt_plinko", "lt_mines", "lt_bj", "lt_roulette",
+               "lt_stairs", "lt_duck", "lt_crash", "lt_avia", "lt_coin",
+               "lt_dice"]
+
+
+def arcade_lobby(focus=7, broke=False):
+    """The lobby under the joystick: the focused tile lifted and framed."""
+    c = stage("bg_lobby")
+    if broke:
+        put(c, "broke_banner", 0, 106)
+    else:
+        put(c, "title", 0, 106)
+    for i, t in enumerate(LOBBY_TILES, 1):
+        x = (-132 + 88 * (i - 1) if i <= 4 else
+             -132 + 88 * (i - 5) if i <= 8 else -88 + 88 * (i - 9))
+        y = 33 if i <= 4 else (-47 if i <= 8 else -127)
+        put(c, t, x, y, 103 if i == focus else 100)
+        if i == focus:
+            frame_on(c, t, x, y, 1.03)
+    chrome(c, "3" if broke else "12,450"); return c
+
+
+def arcade_mines():
+    """Mid-round, the frame on the tile the stick is on."""
+    c = mines()
+    frame_on(c, "tile_hidden", -96 + 48 * 3, 100 - 48 * 2)
+    return c
+
+
+def arcade_slots_broke():
+    c = slots()
+    put(c, "broke_banner", 0, -104)
+    frame_on(c, "btn_spin", 75, -152)
+    return c
+
+
 SCREENS = {
     "lobby": lobby, "slots": slots,
     "plinko_8": lambda: plinko(0, "low"),
@@ -331,6 +374,10 @@ SCREENS = {
     "blackjack_hand": lambda: blackjack("hand"),
     "blackjack_split": lambda: blackjack("split"),
     "blackjack_insurance": lambda: blackjack("insurance"),
+    "arcade_lobby": arcade_lobby,
+    "arcade_mines": arcade_mines,
+    "arcade_broke_lobby": lambda: arcade_lobby(1, True),
+    "arcade_broke_slots": arcade_slots_broke,
 }
 
 # one screen per game in the README banner

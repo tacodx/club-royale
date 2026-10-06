@@ -16,7 +16,7 @@ bcasts = dict(stage["broadcasts"])
 
 SHADOW_OPS = {
     "looks_costume", "looks_backdrops", "control_create_clone_of_menu",
-    "sensing_touchingobjectmenu", "sensing_of_object_menu",
+    "sensing_touchingobjectmenu", "sensing_of_object_menu", "sensing_keyoptions",
     "sound_sounds_menu", "motion_glideto_menu", "motion_goto_menu",
     "pen_menu_colorParam", "procedures_prototype",
     "argument_reporter_string_number",

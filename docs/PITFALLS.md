@@ -225,6 +225,20 @@ different things on different machines.
 
 ---
 
+## 10c. A key tapped inside one frame never happened
+
+`key (space) pressed?` reads the keyboard state when the block runs, once a
+frame. A key that goes down and up between two frames is never seen. Harness
+key presses therefore *hold* each key for about three frames (90 ms) before
+releasing it, and the joystick loop detects a press as an edge between frames
+(`padPrev_*`), not as a level, so holding A does not press repeatedly.
+
+Headless `set size` is a no-op as well: `RenderedTarget.setSize` only stores
+the size inside its `if (this.renderer)` branch. Assert on an effect set next
+to it (the lobby tiles' brightness) rather than on `size`.
+
+---
+
 ## 11. Clone limit is 300
 
 Currently 235 are alive at boot: 49 roulette spots, 40 digits, 36 stair tiles,
